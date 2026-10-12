@@ -37,6 +37,7 @@ OBJS            ?= \
 	src/print_dolist.o \
 	src/print_dolist_func.o \
 	src/replay.o \
+	src/replay_sidebar.o \
 	src/auto-resign-func.o \
 	src/buildingtypeclass_width_crash_fix.o \
 	src/out_of_sync-func.o \

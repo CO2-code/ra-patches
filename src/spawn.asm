@@ -1147,6 +1147,17 @@ Initialize_Spawn:
     test eax, eax
     je .record_fail
     
+    ; Replay fix: the spawner already added the players from spawn.ini above
+    ; (NameNode count = 2), and SessionClass::Load appends the recorded name
+    ; tags instead of resetting it - playback would otherwise see count 4
+    ; (HumanPlayers @ 0x68044A): human houses 12-15 and doubled MCVs.
+    ; Same engine sequence Net_Join_Dialog uses before re-adding (0x005086BF).
+    ; Reached only after Is_Available + OpenFile both succeeded; the live and
+    ; record paths jump to .record_end above and never execute this.
+    mov eax, nameTags
+    mov dl, 5
+    call 0x00503D94 ; Clear_Vector(DynamicVectorClass<NodeNameTag *> *)
+
     mov eax, recording_file
     call 0x004F87C4 ; Load_Recording_Values(CCFileClass &)
     
