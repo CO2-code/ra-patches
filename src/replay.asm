@@ -3,7 +3,7 @@
 
 gstring recording_filename, "ratest.rarec"
 
-%if 0
+%if 1
 @CLEAR 0x004A7EDD, 0x90, 0x004A7EE2 ; don't record mouse and other stuff
 @CLEAR 0x004A53E7, 0x90, 0x004A53EC ; don't hide mouse
 @CLEAR 0x004F874F, 0x90, 0x004F8760 ; don't save seed

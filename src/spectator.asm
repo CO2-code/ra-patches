@@ -11,40 +11,64 @@
 
 extern spawner_is_active
 extern SpectatorsArray
+cextern recording_mode               ; sym.asm: setcglob 0x00680151, recording_mode
 
 gbyte SpectatorCount, 0
 
 
+; The six HUD hooks below answer "is the viewer a spectator?".
+; Live games keep the original answer: PlayerPtr+EXT_IsSpectator == 1.
+; Replay playback answers it with recording_mode bit 2 instead, because the
+; replay POV house is an ordinary player house and must stay EXT_IsSpectator=0
+; so that DrawLiveStats (src/spectators-func.c) lists it and every other real
+; house as a player row. Every other EXT_IsSpectator consumer - the DrawLiveStats
+; row filter, chat-func routing, the spawner statistics packet - is untouched.
+
 hack 0x00568F2E, 0x00568F38
     mov edx, dword[HouseClass__PlayerPtr]
     cmp dword[edx+EXT_IsSpectator], 1
-    jz hackend ; always draw available money
+    jz .Spectator
+    test byte[recording_mode], 2
+    jnz .Spectator ; replay playback - always draw available money
 
     ; original code
     cmp dword[ebp-0x60], 0
     je 0x0056900B
     jmp hackend
 
+.Spectator:
+    jmp hackend
+
     
 hack 0x005625D7, 0x005625DF
     mov edx, dword[HouseClass__PlayerPtr]
     cmp dword[edx+EXT_IsSpectator], 1
-    jz hackend ; skip draw pips check
+    jz .Spectator
+    test byte[recording_mode], 2
+    jnz .Spectator ; replay playback - skip draw pips check
 
     ; original code
     test dword[esi+0x8b], eax
     je 0x0056260F
     jmp hackend
 
+.Spectator:
+    jmp hackend
+
 
 hack 0x0045551C, 0x00455528 ; spy mode - show what is being built
     mov edx, dword[HouseClass__PlayerPtr]
     cmp dword[edx+EXT_IsSpectator], 1
-    jz hackend ; skip building spied check
+    jz .Spectator
+    test byte[recording_mode], 2
+    jnz .Spectator ; replay playback - skip building spied check
 
     ; original code
     test dword[esi+0x8B], eax ; building spied check
     je 0x0045560E
+    jmp hackend
+
+.Spectator:
     jmp hackend
 
     
@@ -52,7 +76,10 @@ hack 0x0054D8A5, 0x0054D8B0 ; SidebarClass::Draw_It(int) - Draw live stats
     pushad
     mov eax, dword[HouseClass__PlayerPtr]
     cmp dword[eax+EXT_IsSpectator], 1
-    jnz .out
+    jz .Draw_Stats
+    test byte[recording_mode], 2
+    jz .out
+.Draw_Stats:
     call DrawLiveStats
 
 .out:
@@ -68,8 +95,10 @@ hack 0x0054D8A5, 0x0054D8B0 ; SidebarClass::Draw_It(int) - Draw live stats
 	push eax
 	mov dword eax, [0x00669958] ; PlayerPtr
 	cmp dword [eax+EXT_IsSpectator], 1
+	jz .Is_Spectator         ; live spectator path, unchanged
+	test byte[recording_mode], 2
+	jnz .Is_Spectator        ; replay playback: viewer is a spectator too
 	pop eax
-	jz .Draw_Credits_Count
 	add eax, edi
 
 .Ret:
@@ -80,13 +109,19 @@ hack 0x0054D8A5, 0x0054D8B0 ; SidebarClass::Draw_It(int) - Draw live stats
 	mov eax, ebx
 	call 0x004D5E00 ; long const HouseClass::Available_Money(void)const  proc near
 	jmp .Ret
+
+.Is_Spectator:
+	pop eax
+	jmp .Draw_Credits_Count
 @ENDHACK	
 
 @HACK 0x005326A2, _RadarClass__Draw_Names__Draw_Credits_Text_For_Specator
 ;	push eax
 	mov dword eax, [0x00669958] ; PlayerPtr
 	cmp dword [eax+EXT_IsSpectator], 1
-	jz .Draw_Credits_Text
+	jz .Draw_Credits_Text     ; live spectator path, unchanged
+	test byte[recording_mode], 2
+	jnz .Draw_Credits_Text    ; replay playback: viewer is a spectator too
 	push 12Ah
 .Ret:
 ;	pop eax
