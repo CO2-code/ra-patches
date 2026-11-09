@@ -159,7 +159,11 @@ cextern ChatMuted
 cextern MapHash
 cextern recording_file
 cextern recording_mode
+cextern NativeReplay_Bootstrap
+cextern NativeReplay_ModeValue
+cextern Replay_Native_Setup
 cextern recording_filename
+cextern Replay_Load_Header
 cextern ReduceSovietMaxAircrafts
 cextern PlayerIsSoviet
 extern str_AutoHarvesting
@@ -490,6 +494,10 @@ Initialize_Spawn:
     JMP .exit
 
 .first_run:
+
+    call NativeReplay_Bootstrap
+    test eax, eax
+    jz .exit_error
 
     ; initialize FileClass
     MOV EDX, str_spawn_ini
@@ -1006,6 +1014,8 @@ Initialize_Spawn:
     
 
     ; initialize network
+    cmp dword [NativeReplay_ModeValue], 2
+    je .nonet
     CMP BYTE [game + Session.type], 4
     JNE .nonet
 
@@ -1099,6 +1109,11 @@ Initialize_Spawn:
 %endif
 
     
+    call Replay_Native_Setup
+    test eax, eax
+    js .record_fail
+    jnz .native_replay_ready
+
     INI_Get_Int str_settings, str_recording_mode, 0
     mov byte[recording_mode], al
     
@@ -1116,14 +1131,13 @@ Initialize_Spawn:
     test eax, eax
     je .record_fail
     
-    mov eax, recording_file
-    call 0x004F8718 ; Save_Recording_Values(CCFileClass &)
+    ; Write the header after the remaining scenario and game options are read.
     
     jmp .record_end
 
 .noRecord: 
 
-    test byte[recording_mode], 04 ; playback
+    test byte[recording_mode], 02 ; playback (04 is attract/demo mode)
     je .record_end
     
     mov edx, recording_filename
@@ -1148,7 +1162,11 @@ Initialize_Spawn:
     je .record_fail
     
     mov eax, recording_file
-    call 0x004F87C4 ; Load_Recording_Values(CCFileClass &)
+    call Replay_Load_Header
+    test eax, eax
+    jz .record_fail
+
+.playback_header_loaded:
     
     xor eax, eax
     mov edx, -3
@@ -1157,9 +1175,17 @@ Initialize_Spawn:
     call 0x0056C020 ; ThemeClass::Queue_Song(ThemeType)
     
     jmp .record_end
+
+.native_replay_ready:
+    test byte [recording_mode], 2
+    jnz .playback_header_loaded
+    jmp .record_end
     
 .record_fail:
     mov byte[recording_mode], 0
+    xor eax, eax
+    mov dword[GameActive], eax
+    jmp .exit
     
 .record_end:
     
@@ -1312,6 +1338,12 @@ Initialize_Spawn:
 	
 .Dont_Set_Single_Player:
 
+    test byte[recording_mode], 01
+    jz .replay_header_ready
+    mov eax, recording_file
+    call 0x004F8718 ; Save_Recording_Values, final launch options and scenario
+.replay_header_ready:
+
 	MOV EDX, 1
 	LEA EAX, [buf]
 	CALL Start_Scenario
@@ -1326,8 +1358,11 @@ Initialize_Spawn:
     
 .Dont_Load_Scenario:
 
+    test byte[recording_mode], 02
+    jnz .replay_connections_ready
     MOV EAX, game
     CALL SessionClass__Create_Connections
+.replay_connections_ready:
 
     MOV EAX,SidebarClass_this
     MOV EDX,1
