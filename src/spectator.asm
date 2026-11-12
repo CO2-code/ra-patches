@@ -276,10 +276,11 @@ hack 0x0052D76E, 0x0052D775
     pop ebp
     ret
 
-hack 0x004D4D5C, 0x004D4D64
+hack 0x004D4D5C, 0x004D4D67
     test byte [recording_mode], 2
     jnz .Replay_GPS
     mov cl, byte [ecx+0x44]
+    mov [ebp-0x3C], eax
     test cl, 8
     je 0x004D4D71
     jmp .GPS_Active
