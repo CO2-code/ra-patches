@@ -16,6 +16,10 @@ gstring recording_filename, "ratest.rarec"
     test byte [recording_mode], 4
 @ENDPATCH
 
+; Keep the normal UI input pump active during replay. It dispatches mouse controls and
+; Keyboard_Process; Options.Process then blocks Main_Loop until the dialog closes.
+@CLEAR 0x004A7E72, 0x90, 0x004A7E7B
+
 ; Record commands only, never the original player's view or selection.
 @CLEAR 0x004A7EDD, 0x90, 0x004A7EE2
 @CLEAR 0x004A53E7, 0x90, 0x004A53EC
