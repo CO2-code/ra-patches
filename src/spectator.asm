@@ -246,13 +246,63 @@ hack 0x0054D8A5, 0x0054D8B0 ; SidebarClass::Draw_It(int) - Draw live stats
 
 @HACK 0x0053DFD7, _Assign_Houses_Set_Up_Player_Pointer
     mov dword [0x00669958], edi
+    test byte [recording_mode], 2
+    jnz .Replay
     cmp byte [spawner_is_active], 0
     jz .Ret
     test byte [eax+0x43], 1
     jz .Ret
     mov dword [0x0065D7F0], 1
-	mov dword [0x0067F315], 1
-    
+    mov dword [0x0067F315], 1
 .Ret:
-    jmp     0x0053DFDD
+    jmp 0x0053DFDD
+.Replay:
+    mov dword [0x0065D7F0], 1
+    jmp 0x0053DFDD
 @ENDHACK
+
+; Replay-only radar presentation. Init_Clear resets the native radar-active
+; bit, so activate it after initialization rather than writing the radar state.
+hack 0x0052D76E, 0x0052D775
+    test byte [recording_mode], 2
+    jz .Original
+    pushad
+    mov eax, 0x00668250
+    mov edx, 3
+    call 0x0052D790
+    popad
+.Original:
+    lea esp, [ebp-0x8]
+    pop edx
+    pop ebx
+    pop ebp
+    ret
+
+; During replay, treat the radar as unjammed without changing HouseClass flags.
+hack 0x004D4D5C, 0x004D4D64
+    test byte [recording_mode], 2
+    jnz .Replay_GPS
+    mov cl, byte [ecx+0x44]
+    test cl, 8
+    je 0x004D4D71
+    jmp .GPS_Active
+.Replay_GPS:
+.GPS_Active:
+    xor esi, esi
+    mov [ebp-0x3C], esi
+    jmp 0x004D4DF2
+
+; Keep the replay radar active when the POV house has no radar dome or power.
+hack 0x004D4E78, 0x004D4E82
+    test byte [recording_mode], 2
+    jnz 0x004D4F02
+    test byte [eax+0x44], 8
+    jnz 0x004D4F02
+    jmp 0x004D4E82
+
+hack 0x004D4E8E, 0x004D4E98
+    test byte [recording_mode], 2
+    jnz 0x004D4F02
+    test byte [eax+0x44], 8
+    jnz 0x004D4F02
+    jmp 0x004D4E98
