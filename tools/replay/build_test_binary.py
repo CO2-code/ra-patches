@@ -101,7 +101,9 @@ def build(source, output, trace=False, native=True):
         work = Path(temporary)
         objects = []
         sources = [("replay", ROOT / "src/replay.asm"),
-                   ("spawner", ROOT / "tools/replay/shipped-spawner.asm")]
+                   ("spawner", ROOT / "tools/replay/shipped-spawner.asm"),
+                   ("replay-sidebar", ROOT / "src/replay_sidebar.asm"),
+                   ("replay-spectator", ROOT / "tools/replay/replay-spectator.asm")]
         if native:
             sources.append(("native-hooks", ROOT / "src/replay-native-hooks.asm"))
         if trace:
@@ -127,16 +129,17 @@ def build(source, output, trace=False, native=True):
                 objects.append(str(obj))
         script = work / "test.lds"
         script.write_text(f"""SECTIONS {{
-          .replay {payload_base:#x} : {{ *(.text) *(.rdata) *(.rodata*) }}
-          .rstate ALIGN(0x1000) : {{ *(.data) *(.bss) *(COMMON) BYTE(0) }}
-          .patch ALIGN(0x1000) : SUBALIGN(1) {{ *(.patch) }}
+          .replay {payload_base:#x} : {{ *(.text*) *(.rdata*) *(.rodata*) }}
+          .rstate ALIGN(0x1000) : {{ *(.data*) *(.bss*) *(COMMON) BYTE(0) }}
+          .patch ALIGN(0x1000) : SUBALIGN(1) {{ *(.patch*) }}
+          /DISCARD/ : {{ *(.drectve) }}
         }}
         _recording_mode = 0x680151;
         _recording_file = 0x6800f1;
         """, encoding="ascii")
         linked = work / "linked.exe"
         subprocess.run(["ld", "-m", "i386pe", "--image-base=0x400000",
-                        "--disable-reloc-section", "--entry=_Replay_Load_Header",
+                        "--entry=_Replay_Load_Header",
                         "-T", str(script), "-o", str(linked), *objects], check=True)
         linked_image = PE(linked.read_bytes())
         payload = linked_image.section_data(b".replay")
