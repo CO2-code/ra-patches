@@ -8,6 +8,46 @@ cglobal Replay_Load_Header
 
 gstring recording_filename, "ratest.rarec"
 
+hack 0x004A7C8B, 0x004A7C91
+    test byte [recording_mode], 2
+    jz .continue
+    pushad
+    call 0x005C21E0
+    popad
+    cmp dword [0x00665F64], 1
+    je .paused
+.continue:
+    mov edx, [0x00669924]
+    jmp hackend
+.paused:
+    xor eax, eax
+    lea esp, [ebp-0x14]
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    pop ebp
+    ret
+
+hack 0x004A56E9, 0x004A56ED
+    test byte [recording_mode], 2
+    jz .original
+    movzx edx, word [eax]
+    and edx, 0xFF
+    cmp edx, 0x1B
+    jne .original
+    mov dword [0x00665F64], 1
+    mov word [eax], 0
+    jmp 0x004A62F6
+.original:
+    cmp word [eax], 0
+    jmp hackend
+
+@PATCH 0x004A7E72
+    test byte [recording_mode], 4
+@ENDPATCH
+
 ; A replay keeps the recorded house's sidebar. Only attract/demo playback
 ; suppresses activation, matching CO2's Session.Attract source-level repair.
 ; Cameo clicks are handled separately below; outgoing viewer orders are also
