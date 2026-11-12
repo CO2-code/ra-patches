@@ -30,7 +30,7 @@ hack 0x004A7C8B, 0x004A7C91
     pop ebp
     ret
 
-hack 0x004A56E9, 0x004A56ED
+hack 0x004A56E9, 0x004A56F3
     test byte [recording_mode], 2
     jz .original
     movzx edx, word [eax]
@@ -42,6 +42,7 @@ hack 0x004A56E9, 0x004A56ED
     jmp 0x004A62F6
 .original:
     cmp word [eax], 0
+    je 0x004A62F6
     jmp hackend
 
 @PATCH 0x004A7E72
