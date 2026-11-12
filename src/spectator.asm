@@ -261,8 +261,6 @@ hack 0x0054D8A5, 0x0054D8B0 ; SidebarClass::Draw_It(int) - Draw live stats
     jmp 0x0053DFDD
 @ENDHACK
 
-; Replay-only radar presentation. Init_Clear resets the native radar-active
-; bit, so activate it after initialization rather than writing the radar state.
 hack 0x0052D76E, 0x0052D775
     test byte [recording_mode], 2
     jz .Original
@@ -278,7 +276,6 @@ hack 0x0052D76E, 0x0052D775
     pop ebp
     ret
 
-; During replay, treat the radar as unjammed without changing HouseClass flags.
 hack 0x004D4D5C, 0x004D4D64
     test byte [recording_mode], 2
     jnz .Replay_GPS
@@ -292,7 +289,6 @@ hack 0x004D4D5C, 0x004D4D64
     mov [ebp-0x3C], esi
     jmp 0x004D4DF2
 
-; Keep the replay radar active when the POV house has no radar dome or power.
 hack 0x004D4E78, 0x004D4E82
     test byte [recording_mode], 2
     jnz 0x004D4F02
