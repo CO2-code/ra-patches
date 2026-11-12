@@ -37,6 +37,7 @@ OBJS            ?= \
 	src/print_dolist.o \
 	src/print_dolist_func.o \
 	src/replay.o \
+	src/replay_sidebar.o \
 	src/replay-native.o \
 	src/replay-native-hooks.o \
 	src/vendor/miniz/miniz.o \
