@@ -288,6 +288,48 @@ Replay_Validate_Header:
     popad
     ret
 
+; Options button, Escape and the resign hotkey all reach Queue_Options, which
+; queues an OPTIONS event; the Options dialog's Abort Mission queues EXIT through
+; Queue_Exit. Playback throws away every locally generated event (see the outgoing
+; FIFO reset above) and ignores replayed OPTIONS, so neither could ever take
+; effect (issue #4). In playback, ask the game loop for the Options dialog
+; directly. It is modal, so the simulation is paused while it is open.
+; The pending-dialog byte is the one EventClass::Execute sets for OPTIONS.
+hack 0x00528DCC, 0x00528DD6
+    test byte [recording_mode], 2
+    jz .live
+    mov byte [0x00680834], 1
+    mov eax, 1
+    ret
+.live:
+    push ebp
+    mov ebp, esp
+    push ebx
+    push edx
+    push esi
+    push edi
+    sub esp, 0x14
+    jmp hackend
+
+; Abort Mission (and any other Queue_Exit caller) cannot depend on an EXIT event
+; during playback: leave the viewer by clearing GameActive, the same path the
+; native frame probe takes at the end of a recording.
+hack 0x00528E44, 0x00528E4E
+    test byte [recording_mode], 2
+    jz .live
+    mov dword [0x00669924], 0
+    mov eax, 1
+    ret
+.live:
+    push ebp
+    mov ebp, esp
+    push ebx
+    push edx
+    push esi
+    push edi
+    sub esp, 0x14
+    jmp hackend
+
 ; Like YR's SidebarCameoClick_IgnoreDuringPlayback, ignore production/placement
 ; clicks before they touch factory or pending-object state. Discarding OutList
 ; alone does not undo those local side effects. Keep ControlClass::Action's

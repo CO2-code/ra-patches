@@ -80,8 +80,10 @@ conversion utility runs in the production launch path.
 
 Playback retains the recording player's house/shroud and the read-only sidebar,
 with a free camera. Viewer orders are discarded before simulation effects.
-Recorded commands reproduce game-speed changes. YR's observer/house switching,
-checkpoint seeking, pause/speed viewer controls, camera following, selections and
+The sidebar Options button, Escape and the resign hotkey open the game's normal
+Options dialog during playback. It is modal, so it pauses playback while open, and
+its Abort Mission button leaves the viewer immediately. Recorded commands
+reproduce game-speed changes. YR's observer/house switching, checkpoint seeking, pause/speed viewer controls, camera following, selections and
 chat overlays have not been ported. Those controls are hidden through package
 INI, and their launch tags do not replace recorded simulation settings.
 

@@ -38,7 +38,9 @@ house execution. Multiplayer preserves the CRC's synchronized RNG cadence,
 consumes FRAMEINFO without offline transport comparisons, and handles remote EXIT
 through the live patched departure handler. Queue writes, counts and events are
 checked. The recorded player's sidebar remains visible; cameo clicks are ignored
-before factory/placement changes. Viewer commands never enter the simulation.
+before factory/placement changes. Viewer commands never enter the simulation, so
+`Queue_Options` and `Queue_Exit` are redirected in playback: Options (button, Escape)
+opens the modal dialog directly and Abort Mission ends the viewer.
 
 `src/replay-native.c` records setup before spawner scrubbing, streams compression,
 validates playback and compares frame/RNG/CRC samples. `replay-native-hooks.asm`
