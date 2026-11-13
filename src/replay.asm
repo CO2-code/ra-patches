@@ -16,6 +16,10 @@ gstring recording_filename, "ratest.rarec"
     test byte [recording_mode], 4
 @ENDPATCH
 
+; Keep the normal UI input pump active during replay so the Options dialog
+; and its keyboard shortcut can be reached. Gameplay input is filtered below.
+@CLEAR 0x004A7E72, 0x90, 0x004A7E7B
+
 ; Record commands only, never the original player's view or selection.
 @CLEAR 0x004A7EDD, 0x90, 0x004A7EE2
 @CLEAR 0x004A53E7, 0x90, 0x004A53EC
