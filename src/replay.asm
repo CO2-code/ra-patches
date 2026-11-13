@@ -45,10 +45,6 @@ hack 0x004A56E9, 0x004A56F3
     je 0x004A62F6
     jmp hackend
 
-@PATCH 0x004A7E72
-    test byte [recording_mode], 4
-@ENDPATCH
-
 ; A replay keeps the recorded house's sidebar. Only attract/demo playback
 ; suppresses activation, matching CO2's Session.Attract source-level repair.
 ; Cameo clicks are handled separately below; outgoing viewer orders are also
