@@ -85,7 +85,11 @@ static void emit_pool(const char *pool, uint32_t total_address) {
         put_unsigned(coordinate & 0xffff);
         put_text(",\"yLepton\":");
         put_unsigned(coordinate >> 16);
-        put_text(",\"ownerHouseId\":null,\"typeId\":null,\"hp\":null,\"maxHp\":null,\"facing\":null,\"turretFacing\":null,\"mission\":null}");
+        put_text(",\"hp\":");
+        put_signed(*(int16_t *)(object + 40));
+        put_text(",\"isInLimbo\":");
+        put_text(((*(uint32_t *)(object + 24)) & 8) ? "true" : "false");
+        put_text(",\"ownerHouseId\":null,\"typeId\":null,\"maxHp\":null,\"facing\":null,\"turretFacing\":null,\"mission\":null}");
     }
 }
 
