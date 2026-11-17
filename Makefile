@@ -39,6 +39,7 @@ OBJS            ?= \
 	src/replay.o \
 	src/replay_sidebar.o \
 	src/replay-native.o \
+	src/worldstate-export.o \
 	src/replay-native-hooks.o \
 	src/vendor/miniz/miniz.o \
 	src/auto-resign-func.o \
