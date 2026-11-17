@@ -14,6 +14,7 @@ static unsigned output_size;
 static int output_failed;
 static int export_started;
 static unsigned object_count;
+static uint32_t last_frame;
 
 static void put_char(char c) {
     if (output_size < sizeof(output) - 2) output[output_size++] = c;
@@ -116,7 +117,10 @@ static int write_output(void) {
 void WorldState_ExportSnapshot(void) {
     size_t i;
     unsigned count = 0;
-    if (!GameActive || (Frame % 60) != 0) return;
+    if (!GameActive) return;
+    if (Frame < last_frame) export_started = 0;
+    last_frame = Frame;
+    if ((Frame % 60) != 0) return;
     output_size = 0;
     output_failed = 0;
     put_text("{\"schema\":\"RARPP.WorldStateExport\",\"version\":1,\"frame\":");
