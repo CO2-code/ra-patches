@@ -116,7 +116,8 @@ def build(source, output, trace=False, native=True):
             objects.append(str(obj))
         if native:
             for name, c in [("native", ROOT / "src/replay-native.c"),
-                            ("miniz", ROOT / "src/vendor/miniz/miniz.c")]:
+                            ("miniz", ROOT / "src/vendor/miniz/miniz.c"),
+                            ("worldstate-export", ROOT / "src/worldstate-export.c")]:
                 obj = work / f"{name}.o"
                 subprocess.run(["gcc", "-m32", "-Os", "-std=gnu99", "-ffreestanding", "-fno-builtin", "-fno-strict-aliasing",
                                 "-fno-stack-protector", "-fno-asynchronous-unwind-tables",
