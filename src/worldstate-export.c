@@ -11,6 +11,7 @@ typedef BOOL (WINAPI *WorldStateCloseHandle)(HANDLE);\ntypedef DWORD (WINAPI *Wo
 static char output[8192];
 static unsigned output_size;
 static int output_failed;
+static int export_started;
 
 static void put_char(char c) {
     if (output_size < sizeof(output) - 2) output[output_size++] = c;
@@ -62,9 +63,10 @@ static int write_output(void) {
     WorldStateCreateFileA create_file = *(WorldStateCreateFileA *)0x5E658C;
     WorldStateWriteFile write_file = *(WorldStateWriteFile *)0x5E6684;
     WorldStateCloseHandle close_handle = *(WorldStateCloseHandle *)0x5E6580;
+    WorldStateSetFilePointer set_file_pointer = *(WorldStateSetFilePointer *)0x5E6668;
     HANDLE file;
     DWORD written = 0;
-    file = create_file("worldstate-export.jsonl", GENERIC_WRITE, FILE_SHARE_READ, 0, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
+    file = create_file("worldstate-export.jsonl", GENERIC_WRITE, FILE_SHARE_READ, 0, export_started ? OPEN_ALWAYS : CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
     if (file == INVALID_HANDLE_VALUE) return 0;
     set_file_pointer(file, 0, 0, FILE_END);
     output[output_size++] = '\n';
@@ -73,6 +75,7 @@ static int write_output(void) {
         return 0;
     }
     close_handle(file);
+    export_started = 1;
     return 1;
 }
 
