@@ -6,7 +6,8 @@
 
 typedef HANDLE (WINAPI *WorldStateCreateFileA)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
 typedef BOOL (WINAPI *WorldStateWriteFile)(HANDLE, LPCVOID, DWORD, LPDWORD, LPOVERLAPPED);
-typedef BOOL (WINAPI *WorldStateCloseHandle)(HANDLE);\ntypedef DWORD (WINAPI *WorldStateSetFilePointer)(HANDLE, LONG, PLONG, DWORD);
+typedef BOOL (WINAPI *WorldStateCloseHandle)(HANDLE);
+typedef DWORD (WINAPI *WorldStateSetFilePointer)(HANDLE, LONG, PLONG, DWORD);
 
 static char output[131072];
 static unsigned output_size;
@@ -116,7 +117,14 @@ void WorldState_ExportSnapshot(void) {
     output_failed = 0;
     put_text("{\"schema\":\"RARPP.WorldStateExport\",\"version\":1,\"frame\":");
     put_unsigned(Frame);
-    put_text(",\"snapshotKind\":\"partial-house-state\",\"objectsComplete\":false,\"objects\":[],\"houses\":[");
+    put_text(",\"snapshotKind\":\"object-pool-position\",\"objectsComplete\":false,\"objects\":[");
+    object_count = 0;
+    emit_pool("aircraft", 0x0065D820);
+    emit_pool("buildings", 0x0065D8B8);
+    emit_pool("infantry", 0x0065D9E8);
+    emit_pool("units", 0x0065DC48);
+    emit_pool("vessels", 0x0065DC94);
+    put_text("],\"houses\":[");
     for (i = 0; i < HouseClassPointersCount && i < 20; i++) {
         unsigned char *house = (unsigned char *)HouseClassPointers[i];
         unsigned char flags;
