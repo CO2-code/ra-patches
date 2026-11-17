@@ -63,6 +63,23 @@ static void put_string(const char *s) {
 }
 
 
+
+static void put_string_limit(const char *s, unsigned limit) {
+    put_char('"');
+    while (s && limit-- && *s) {
+        unsigned char c = (unsigned char)*s++;
+        if (c == '"' || c == '\\') {
+            put_char('\\');
+            put_char((char)c);
+        } else if (c >= 32) {
+            put_char((char)c);
+        } else {
+            put_char('?');
+        }
+    }
+    put_char('"');
+}
+
 static void emit_pool(const char *pool, uint32_t total_address) {
     uint32_t stride = *(uint32_t *)(total_address - 4);
     uint32_t total = *(uint32_t *)total_address;
@@ -147,7 +164,7 @@ void WorldState_ExportSnapshot(void) {
         put_text(",\"color\":");
         put_unsigned(house[HC_PLAYER_COLOR]);
         put_text(",\"name\":");
-        put_string((const char *)(house + HC_PLAYER_NAME));
+        put_string_limit((const char *)(house + HC_PLAYER_NAME), 12);
         put_text(",\"credits\":");
         put_signed(*(int32_t *)(house + HC_Credits));
         put_text(",\"powerGenerated\":");
