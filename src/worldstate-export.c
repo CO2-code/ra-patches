@@ -13,7 +13,6 @@ static char output[131072];
 static unsigned output_size;
 static int output_failed;
 static int export_started;
-static unsigned object_count;
 static uint32_t last_frame;
 
 static void put_char(char c) {
@@ -80,37 +79,6 @@ static void put_string_limit(const char *s, unsigned limit) {
     put_char('"');
 }
 
-static void emit_pool(const char *pool, uint32_t total_address) {
-    uint32_t stride = *(uint32_t *)(total_address - 4);
-    uint32_t total = *(uint32_t *)total_address;
-    unsigned char *buffer = *(unsigned char **)(total_address + 8);
-    uint32_t i;
-    if (!buffer || stride < 24 || stride > 8192 || total > 4096) return;
-    for (i = 0; i < total; i++) {
-        unsigned char *object = buffer + i * stride;
-        uint32_t active = *(uint32_t *)(object + 20);
-        uint32_t coordinate;
-        if (!(active & 1)) continue;
-        coordinate = *(uint32_t *)(object + 12);
-        if (object_count++) put_char(',');
-        put_text("{\"pool\":");
-        put_string(pool);
-        put_text(",\"rtti\":");
-        put_unsigned(*(uint32_t *)(object + 4));
-        put_text(",\"id\":");
-        put_signed(*(int32_t *)(object + 8));
-        put_text(",\"xLepton\":");
-        put_unsigned(coordinate & 0xffff);
-        put_text(",\"yLepton\":");
-        put_unsigned(coordinate >> 16);
-        put_text(",\"hp\":");
-        put_signed(*(int16_t *)(object + 40));
-        put_text(",\"isInLimbo\":");
-        put_text(((*(uint32_t *)(object + 24)) & 8) ? "true" : "false");
-        put_text(",\"ownerHouseId\":null,\"typeId\":null,\"maxHp\":null,\"facing\":null,\"turretFacing\":null,\"mission\":null}");
-    }
-}
-
 static int write_output(void) {
     WorldStateCreateFileA create_file = *(WorldStateCreateFileA *)0x5E658C;
     WorldStateWriteFile write_file = *(WorldStateWriteFile *)0x5E6684;
@@ -134,24 +102,20 @@ static int write_output(void) {
 void WorldState_ExportSnapshot(void) {
     size_t i;
     unsigned count = 0;
-    if (!GameActive) return;
-    if (Frame < last_frame) export_started = 0;
-    last_frame = Frame;
-    if ((Frame % 60) != 0) return;
+    uint32_t frame = *(uint32_t *)0x006680C4;
+    size_t house_count = *(size_t *)0x0065D9A0;
+    void **houses = *(void ***)0x0065D9C8;
+    if (!*(uint32_t *)0x00669924) return;
+    if (frame < last_frame) export_started = 0;
+    last_frame = frame;
+    if ((frame % 60) != 0) return;
     output_size = 0;
     output_failed = 0;
     put_text("{\"schema\":\"RARPP.WorldStateExport\",\"version\":1,\"frame\":");
-    put_unsigned(Frame);
-    put_text(",\"snapshotKind\":\"object-pool-position\",\"objectsComplete\":false,\"objects\":[");
-    object_count = 0;
-    emit_pool("aircraft", 0x0065D820);
-    emit_pool("buildings", 0x0065D8B8);
-    emit_pool("infantry", 0x0065D9E8);
-    emit_pool("units", 0x0065DC48);
-    emit_pool("vessels", 0x0065DC94);
-    put_text("],\"houses\":[");
-    for (i = 0; i < HouseClassPointersCount && i < 20; i++) {
-        unsigned char *house = (unsigned char *)HouseClassPointers[i];
+    put_unsigned(frame);
+    put_text(",\"snapshotKind\":\"partial-house-state\",\"objectsComplete\":false,\"objects\":[],\"houses\":[");
+    for (i = 0; i < house_count && i < 20; i++) {
+        unsigned char *house = (unsigned char *)houses[i];
         unsigned char flags;
         if (!house) continue;
         flags = house[HC_FLAGS1];
