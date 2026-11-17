@@ -6,7 +6,7 @@
 
 typedef HANDLE (WINAPI *WorldStateCreateFileA)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
 typedef BOOL (WINAPI *WorldStateWriteFile)(HANDLE, LPCVOID, DWORD, LPDWORD, LPOVERLAPPED);
-typedef BOOL (WINAPI *WorldStateCloseHandle)(HANDLE);
+typedef BOOL (WINAPI *WorldStateCloseHandle)(HANDLE);\ntypedef DWORD (WINAPI *WorldStateSetFilePointer)(HANDLE, LONG, PLONG, DWORD);
 
 static char output[8192];
 static unsigned output_size;
@@ -66,7 +66,7 @@ static int write_output(void) {
     DWORD written = 0;
     file = create_file("worldstate-export.jsonl", GENERIC_WRITE, FILE_SHARE_READ, 0, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
     if (file == INVALID_HANDLE_VALUE) return 0;
-    SetFilePointer(file, 0, 0, FILE_END);
+    set_file_pointer(file, 0, 0, FILE_END);
     output[output_size++] = '\n';
     if (!write_file(file, output, output_size, &written, 0) || written != output_size) {
         close_handle(file);
