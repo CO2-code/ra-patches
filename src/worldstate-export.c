@@ -8,10 +8,11 @@ typedef HANDLE (WINAPI *WorldStateCreateFileA)(LPCSTR, DWORD, DWORD, LPSECURITY_
 typedef BOOL (WINAPI *WorldStateWriteFile)(HANDLE, LPCVOID, DWORD, LPDWORD, LPOVERLAPPED);
 typedef BOOL (WINAPI *WorldStateCloseHandle)(HANDLE);\ntypedef DWORD (WINAPI *WorldStateSetFilePointer)(HANDLE, LONG, PLONG, DWORD);
 
-static char output[8192];
+static char output[131072];
 static unsigned output_size;
 static int output_failed;
 static int export_started;
+static unsigned object_count;
 
 static void put_char(char c) {
     if (output_size < sizeof(output) - 2) output[output_size++] = c;
@@ -57,6 +58,34 @@ static void put_string(const char *s) {
         }
     }
     put_char('"');
+}
+
+
+static void emit_pool(const char *pool, uint32_t total_address) {
+    uint32_t stride = *(uint32_t *)(total_address - 4);
+    uint32_t total = *(uint32_t *)total_address;
+    unsigned char *buffer = *(unsigned char **)(total_address + 8);
+    uint32_t i;
+    if (!buffer || stride < 24 || stride > 8192 || total > 4096) return;
+    for (i = 0; i < total; i++) {
+        unsigned char *object = buffer + i * stride;
+        uint32_t active = *(uint32_t *)(object + 20);
+        uint32_t coordinate;
+        if (!(active & 1)) continue;
+        coordinate = *(uint32_t *)(object + 12);
+        if (object_count++) put_char(',');
+        put_text("{\"pool\":");
+        put_string(pool);
+        put_text(",\"rtti\":");
+        put_unsigned(*(uint32_t *)(object + 4));
+        put_text(",\"id\":");
+        put_signed(*(int32_t *)(object + 8));
+        put_text(",\"xLepton\":");
+        put_unsigned(coordinate & 0xffff);
+        put_text(",\"yLepton\":");
+        put_unsigned(coordinate >> 16);
+        put_text(",\"ownerHouseId\":null,\"typeId\":null,\"hp\":null,\"maxHp\":null,\"facing\":null,\"turretFacing\":null,\"mission\":null}");
+    }
 }
 
 static int write_output(void) {
