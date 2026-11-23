@@ -74,7 +74,7 @@ files and an intentionally divergent but correctly hashed state sample. It uses
 only its own manifest-verified child processes. Its temporary developer install
 is separate from production, which runs directly in the client game directory.
 
-Twenty-three emitted-x86 tests cover queue/RNG/header/sidebar, offline startup and chat hook integration. Three format tests cover version-2 compatibility and version-3 chat validation. The raw-stream
+Twenty-three emitted-x86 tests cover queue/RNG/header/sidebar, offline startup and chat hook integration. Four format tests cover version-2 compatibility and version-3 chat validation. The raw-stream
 development tools (`replay_test.py`, `smoke_test.py`, `--legacy-raw`) remain useful
 for individual queue regressions; they are not installed or used by the client.
 
