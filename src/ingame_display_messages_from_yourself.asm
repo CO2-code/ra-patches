@@ -1,9 +1,21 @@
 %include "macros/patch.inc"
 %include "macros/hack.inc"
 %include "macros/string.inc"
+%ifdef REPLAY_NATIVE
+cextern NativeReplay_RecordChat
+%endif
 
 @HACK 0x004A731C, _Message_Input_Display_Message_After_Sending_To_Players 
 	pushad
+	%ifdef REPLAY_NATIVE
+	push dword [0x006680C4]
+	movzx eax, byte [0x00680201]
+	push eax
+	push dword 0x00680189
+	push dword 0x0068017D
+	call NativeReplay_RecordChat
+	add esp, 16
+	%endif
 	; Calculate duration the message is displayed for
 	xor ebx, ebx
 	mov bx, [0x006667C7] ; ds:int RulesClass.MessageDelay

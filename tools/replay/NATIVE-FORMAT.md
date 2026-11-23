@@ -1,6 +1,6 @@
-# RA1N version 2
+# RA1N versions 2 and 3
 
-All integers are little endian. HeaderSize is 1312. The first 1096 bytes retain
+All integers are little endian. Version 2 uses HeaderSize 1312 and remains readable. New recordings use version 3 with HeaderSize 1360. The first 1096 bytes retain
 the replay-enabled client's YRRP version-1 metadata layout. YR-only RNG/object and
 checkpoint/stat fields are zero. Initial speed is mapped to the client's nominal
 FPS index; completion is bit 0 at 1056, last frame is at 1052.
@@ -8,7 +8,7 @@ FPS index; completion is bit 0 at 1056, last frame is at 1052.
 | Offset | Field |
 | --- | --- |
 | 1096 | `RA1N` magic (uint32 0x4e314152) |
-| 1100 | Container version 2 |
+| 1100 | Container version 2 (legacy) or 3 (chat stream) |
 | 1104 | Native event ABI 1 (Westwood 3.03 with restored Seed) |
 | 1108 / 1112 | Raw game spawn.ini offset / byte length |
 | 1116 / 1120 / 1124 | Event stream offset / compressed length / raw length |
@@ -19,7 +19,9 @@ FPS index; completion is bit 0 at 1056, last frame is at 1052.
 | 1208 | SHA-256 of the recording executable (32 bytes) |
 | 1240 | SHA-256 of raw game spawn.ini (32 bytes) |
 | 1272 | SHA-256 of original map bytes (32 bytes) |
-| 1304 | Reserved, eight zero bytes |
+| 1304 / 1308 / 1312 | Version 3 chat stream offset / compressed length / raw length |
+| 1316 | Version 3 SHA-256 of uncompressed chat stream (32 bytes) |
+| 1348 | Version 3 reserved, twelve zero bytes |
 
 Payloads are contiguous, in this order:
 
@@ -28,6 +30,7 @@ Payloads are contiguous, in this order:
 3. Original game spawn.ini bytes, without a terminator.
 4. Raw-deflate native replay header and event blocks.
 5. Raw-deflate frame/RNG/CRC samples, each three uint32 values.
+6. Version 3 only: raw-deflate chat records. Each record is `frame:uint32`, `color:uint8`, `nickname_length:uint8`, `text_length:uint16`, followed by nickname bytes and message bytes. Records are frame-ordered; nickname and message lengths are bounded to 11 and 119 bytes. Messages are captured only after the normal incoming-chat filter accepts them, plus the local player's own displayed messages. Playback inserts them into the normal message list at their recorded frame without sending network traffic.
 
 Game INI bytes are losslessly mapped through Latin-1 for the UTF-8 frontend.
 Private raw setup bytes drive playback. The map conversion is reversed and its
@@ -41,7 +44,7 @@ entry, so repeated frame zero is intentional. Check count is the exact playback
 ending boundary; raw event streams have no standalone ending marker.
 
 Limits: 32 MiB original setup/map each, 64 MiB frontend UTF-8 each, 256 MiB raw
-events, 64 MiB checks, 512 MiB entire file. Files must be finalized, contiguous,
+events, 64 MiB checks, 64 MiB raw chat, 512 MiB entire file. Files must be finalized, contiguous,
 correctly hashed and built for the installed executable. Native event type,
 house, count and per-frame bounds are checked before execution.
 

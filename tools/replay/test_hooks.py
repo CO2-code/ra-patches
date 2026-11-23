@@ -87,6 +87,29 @@ def event(frame=42, house=12, kind=2, executed=False):
 
 
 class HookTests(unittest.TestCase):
+    def test_incoming_chat_capture_hook_keeps_message_buffers(self):
+        e = Engine()
+        nickname = b"PlayerOne\0" + bytes(2)
+        message = b"hello replay\0"
+        e.uc.mem_write(0x68017D, nickname)
+        e.uc.mem_write(0x680189, message)
+        e.uc.mem_write(0x680201, b"\x03")
+        before_name = bytes(e.uc.mem_read(0x68017D, 12))
+        before_text = bytes(e.uc.mem_read(0x680189, 120))
+        target = e.run(0x4A7935, 0x4A7962, 0x4A79CE)
+        self.assertEqual(target, 0x4A7962)
+        self.assertEqual(bytes(e.uc.mem_read(0x68017D, 12)), before_name)
+        self.assertEqual(bytes(e.uc.mem_read(0x680189, 120)), before_text)
+
+    def test_local_chat_display_capture_hook_keeps_message_buffers(self):
+        e = Engine()
+        e.uc.mem_write(0x68017D, b"PlayerOne\0" + bytes(2))
+        e.uc.mem_write(0x680189, b"hello replay\0")
+        e.uc.mem_write(0x680201, b"\x03")
+        e.stubs[0x50542C] = lambda engine: engine.ret(arguments=12)
+        target = e.run(0x4A731C, 0x4A7321)
+        self.assertEqual(target, 0x4A7321)
+
     def test_playback_cameo_click_ignores_factory_and_keeps_button_cleanup(self):
         for mode in (0, 1, 2, 6):
             for flags in (1, 8, 16):  # left press, hover/release, right press

@@ -12,7 +12,9 @@
 #include "Sha256.c"
 #include "vendor/miniz/miniz.h"
 
-#define HEADER_SIZE 1312
+#define HEADER_SIZE_V2 1312
+#define HEADER_SIZE 1360
+#define CHAT_LIMIT (64u*1024*1024)
 #define SETUP_LIMIT (32u*1024*1024)
 #define EVENTS_LIMIT (256u*1024*1024)
 #define CHECKS_LIMIT (64u*1024*1024)
@@ -52,14 +54,17 @@ int NativeReplay_ClientRequest;
 typedef struct {
     HANDLE file;
     unsigned char header[HEADER_SIZE];
-    unsigned char *events, *checks;
+    unsigned char *events, *checks, *chat;
     unsigned event_size, event_pos, check_size, check_cap, check_pos;
+    unsigned chat_size, chat_cap, chat_pos;
     unsigned last_frame;
     int failed, closed;
     tdefl_compressor *compressor;
     CSha256 event_hash;
 } ReplayState;
 static ReplayState *state;
+static int native_chat_valid(const unsigned char *p,unsigned n);
+void Replay_Chat_Display(const char *nickname,const char *text,unsigned color);
 
 static int initialize_api(void) {
     typedef HMODULE (WINAPI *LoadLib)(LPCSTR);
@@ -194,7 +199,7 @@ static int record_setup(unsigned char *spawn,unsigned spawn_size,const char *out
     /* The client displays YR speed indices; RA1 stores a 60/fps divisor. */
     { unsigned speed=decimal(value); U32(state->header+1040)=speed<=1?0:speed==2?2:speed==3?3:speed==4?4:speed==5?5:6; }
     U32(state->header+1044)=timestamp();
-    U32(state->header+1096)=0x4e314152; U32(state->header+1100)=2; U32(state->header+1104)=1;
+    U32(state->header+1096)=0x4e314152; U32(state->header+1100)=3; U32(state->header+1104)=1;
     if(!engine_hash(state->header+1208) || !write_bytes(state->file,state->header,HEADER_SIZE)) goto done;
     front=utf8(spawn,spawn_size,&utf_size); if(!front) goto done;
     start=position(); if(!start_compressor()||!compressed(front,utf_size,1)) goto done;
@@ -236,20 +241,27 @@ static int native_events_valid(const unsigned char *p,unsigned n) {
     } return pos==n;
 }
 static int playback_setup(const char *path) {
-    HANDLE f; unsigned char *file=0,*map=0,*spawn=0; unsigned n,map_raw; unsigned char hash[32]; int ok=0;
+    HANDLE f; unsigned char *file=0,*map=0,*spawn=0; unsigned n,map_raw,header_size,version; unsigned char hash[32]; int ok=0;
     unsigned *h=(unsigned *)state->header; /* File bounds are checked before every payload access. */
     f=replay_file(path,0); if(f==INVALID_HANDLE_VALUE) return 0;
     file=read_handle(f,&n,512u*1024*1024); api.CloseHandle(f);
-    if(!file||n<HEADER_SIZE) goto done;
-    nr_memcpy(state->header,file,HEADER_SIZE);
-    if(h[0]!=0x50525259 || h[1]!=1 || h[2]!=HEADER_SIZE || h[1096/4]!=0x4e314152 || h[1100/4]!=2 || h[1104/4]!=1 || !(h[1056/4]&1)) goto done;
+    if(!file||n<HEADER_SIZE_V2) goto done;
+    header_size=U32(file+8); version=U32(file+1100);
+    if((header_size!=HEADER_SIZE_V2 && header_size!=HEADER_SIZE) || n<header_size ||
+       (version==2 && header_size!=HEADER_SIZE_V2) || (version==3 && header_size!=HEADER_SIZE) ||
+       (version!=2 && version!=3)) goto done;
+    nr_memcpy(state->header,file,header_size);
+    if(h[0]!=0x50525259 || h[1]!=1 || h[2]!=header_size || h[1096/4]!=0x4e314152 || h[1104/4]!=1 || !(h[1056/4]&1)) goto done;
     if(!engine_hash(hash)||nr_memcmp(hash,file+1208,32)) { log_line("Replay engine fingerprint differs."); goto done; }
     if(h[1032/4]>SETUP_LIMIT*2||h[1036/4]>SETUP_LIMIT*2 ||
-       h[1108/4]!=HEADER_SIZE+h[1032/4]+h[1036/4] ||
+       h[1108/4]!=header_size+h[1032/4]+h[1036/4] ||
        !h[1112/4]||h[1112/4]>SETUP_LIMIT||!span(h[1108/4],h[1112/4],n) ||
        h[1116/4]!=h[1108/4]+h[1112/4] || !span(h[1116/4],h[1120/4],n) ||
-       h[1128/4]!=h[1116/4]+h[1120/4] || !span(h[1128/4],h[1132/4],n) ||
-       h[1128/4]+h[1132/4]!=n) goto done;
+       h[1128/4]!=h[1116/4]+h[1120/4] || !span(h[1128/4],h[1132/4],n)) goto done;
+    if(version==2) { if(h[1128/4]+h[1132/4]!=n) goto done; }
+    else if(h[1304/4]!=h[1128/4]+h[1132/4] ||
+            !span(h[1304/4],h[1308/4],n) || h[1304/4]+h[1308/4]!=n ||
+            ((!h[1312/4])!=( !h[1308/4]))) goto done;
     digest(file+h[1108/4],h[1112/4],hash); if(nr_memcmp(hash,file+1240,32)) goto done;
     state->event_size=h[1124/4]; state->check_size=h[1136/4];
     state->events=inflate(file,n,h[1116/4],h[1120/4],state->event_size,EVENTS_LIMIT);
@@ -257,7 +269,15 @@ static int playback_setup(const char *path) {
     if(!state->events||!state->checks || state->check_size%12 || !native_events_valid(state->events,state->event_size)) goto done;
     digest(state->events,state->event_size,hash); if(nr_memcmp(hash,file+1144,32)) goto done;
     digest(state->checks,state->check_size,hash); if(nr_memcmp(hash,file+1176,32)) goto done;
-    map_raw=h[1088/4]; map=inflate(file,n,HEADER_SIZE+h[1032/4],h[1036/4],map_raw,SETUP_LIMIT*2);
+    if(version==3 && h[1312/4]) {
+        state->chat_size=h[1312/4];
+        state->chat=inflate(file,n,h[1304/4],h[1308/4],state->chat_size,CHAT_LIMIT);
+        if(!state->chat || !native_chat_valid(state->chat,state->chat_size)) goto done;
+        digest(state->chat,state->chat_size,hash); if(nr_memcmp(hash,file+1316,32)) goto done;
+    } else if(version==3) {
+        digest("",0,hash); if(nr_memcmp(hash,file+1316,32)) goto done;
+    }
+    map_raw=h[1088/4]; map=inflate(file,n,header_size+h[1032/4],h[1036/4],map_raw,SETUP_LIMIT*2);
     if(!map) goto done;
     /* The client already extracts the frontend metadata. Restore the byte-exact
        game setup here before its INI parser runs; never replay viewer settings. */
@@ -298,8 +318,8 @@ int NativeReplay_Bootstrap(void) {
     else {
         log_line(playback?"Native replay rejected: invalid, incomplete, incompatible, or unreadable file.":"Native replay recording could not start; match will continue.");
         if(state->file!=INVALID_HANDLE_VALUE) api.CloseHandle(state->file);
-        release(state->events); release(state->checks); release(state->compressor);
-        state->events=state->checks=0; state->compressor=0;
+        release(state->events); release(state->checks); release(state->chat); release(state->compressor);
+        state->events=state->checks=state->chat=0; state->compressor=0;
         state->closed=1; NativeReplay_ModeValue=0; ok=!playback;
     }
 done:
@@ -327,6 +347,51 @@ int NativeReplay_Seek(int offset,int origin) {
     state->event_pos=base+offset; return state->event_pos;
 }
 int NativeReplay_Size(void) { return state?state->event_size:0; }
+static unsigned bounded_length(const char *p,unsigned limit) {
+    unsigned n=0; while(n<limit && p[n]) n++; return n;
+}
+static int native_chat_valid(const unsigned char *p,unsigned n) {
+    unsigned pos=0,frame=0,previous=0,nick_len,text_len;
+    while(pos<n) {
+        if(n-pos<8) return 0;
+        frame=U32(p+pos); nick_len=p[pos+5]; text_len=(unsigned)p[pos+6]|((unsigned)p[pos+7]<<8);
+        if(nick_len>11 || !text_len || text_len>119 || n-pos-8<nick_len+text_len || (pos && frame<previous)) return 0;
+        pos+=8+nick_len+text_len; previous=frame;
+    }
+    return pos==n;
+}
+int NativeReplay_RecordChat(const char *nickname,const char *text,unsigned color,unsigned frame) {
+    unsigned nick_len,text_len,needed,cap; unsigned char *p;
+    if(!state || state->closed || NativeReplay_ModeValue!=1 || state->failed) return 0;
+    nick_len=bounded_length(nickname,12); text_len=bounded_length(text,120);
+    if(nick_len>11 || !text_len) return 0;
+    needed=8+nick_len+text_len;
+    if(needed>CHAT_LIMIT-state->chat_size) { state->failed=1; log_line("Native replay chat buffer exhausted; recording is incomplete."); return 0; }
+    if(state->chat_size+needed>state->chat_cap) {
+        cap=state->chat_cap?state->chat_cap*2:4096;
+        while(cap<state->chat_size+needed && cap<CHAT_LIMIT) cap*=2;
+        if(cap>CHAT_LIMIT) cap=CHAT_LIMIT;
+        p=state->chat?api.HeapReAlloc(heap,0,state->chat,cap):alloc(cap);
+        if(!p) { state->failed=1; log_line("Native replay chat allocation failed; recording is incomplete."); return 0; }
+        state->chat=p; state->chat_cap=cap;
+    }
+    p=state->chat+state->chat_size; U32(p)=frame; p[4]=(unsigned char)color; p[5]=(unsigned char)nick_len;
+    p[6]=(unsigned char)text_len; p[7]=(unsigned char)(text_len>>8);
+    nr_memcpy(p+8,nickname,nick_len); nr_memcpy(p+8+nick_len,text,text_len);
+    state->chat_size+=needed; return 1;
+}
+void NativeReplay_ChatFrame(unsigned frame) {
+    if(!state || state->closed || NativeReplay_ModeValue!=2) return;
+    while(state->chat_pos<state->chat_size) {
+        unsigned char *p=state->chat+state->chat_pos; unsigned nick_len=p[5];
+        unsigned text_len=(unsigned)p[6]|((unsigned)p[7]<<8); char nickname[12],text[120];
+        if(U32(p)>frame) break;
+        nr_memcpy(nickname,p+8,nick_len); nickname[nick_len]=0;
+        nr_memcpy(text,p+8+nick_len,text_len); text[text_len]=0;
+        Replay_Chat_Display(nickname,text,p[4]);
+        state->chat_pos+=8+nick_len+text_len;
+    }
+}
 int NativeReplay_Frame(unsigned frame,unsigned seed,unsigned crc) {
     unsigned sample[3]; sample[0]=frame; sample[1]=seed; sample[2]=crc;
     if(!state||state->closed) return 1;
@@ -361,7 +426,15 @@ int NativeReplay_Close(void) {
         if(ok) ok=start_compressor()&&compressed(state->checks,state->check_size,1);
         U32(state->header+1132)=position()-start; U32(state->header+1136)=state->check_size;
         digest(state->checks,state->check_size,state->header+1176);
-        U32(state->header+1052)=state->last_frame; U32(state->header+1056)=ok?1:0;
+        U32(state->header+1052)=state->last_frame;
+        U32(state->header+1304)=position(); U32(state->header+1308)=0; U32(state->header+1312)=state->chat_size;
+        if(ok && state->chat_size) {
+            start=position();
+            if(!start_compressor() || !compressed(state->chat,state->chat_size,1)) ok=0;
+            U32(state->header+1308)=position()-start;
+        }
+        digest(state->chat?state->chat:(const unsigned char *)"",state->chat_size,state->header+1316);
+        U32(state->header+1056)=ok?1:0;
         api.SetFilePointer(state->file,0,0,FILE_BEGIN);
         ok=write_bytes(state->file,state->header,HEADER_SIZE)&&ok;
         api.FlushFileBuffers(state->file); api.CloseHandle(state->file);
@@ -372,6 +445,6 @@ int NativeReplay_Close(void) {
         log_line(ok?"Native replay playback: all frame/RNG/CRC samples match.":"Native replay playback ended before all samples matched.");
         number_line("Matched frame/RNG/CRC samples: ",state->check_pos/12);
     }
-    release(state->events); release(state->checks); release(state->compressor);
-    state->events=state->checks=0; state->compressor=0; NativeReplay_Bound=0; return 0;
+    release(state->events); release(state->checks); release(state->chat); release(state->compressor);
+    state->events=state->checks=state->chat=0; state->compressor=0; NativeReplay_Bound=0; return 0;
 }

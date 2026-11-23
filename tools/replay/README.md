@@ -43,8 +43,11 @@ before factory/placement changes. Viewer commands never enter the simulation, so
 opens the modal dialog directly and Abort Mission ends the viewer.
 
 `src/replay-native.c` records setup before spawner scrubbing, streams compression,
-validates playback and compares frame/RNG/CRC samples. `replay-native-hooks.asm`
-bridges Watcom register calls to cdecl and redirects only the recording object.
+validates playback and compares frame/RNG/CRC samples. Version-3 recordings also
+store accepted incoming chat and the local player's displayed messages with their
+frame, sender and color; playback inserts them into the normal message list without
+network traffic. Version-2 files remain readable. `replay-native-hooks.asm` bridges
+Watcom register calls to cdecl and redirects only the recording object.
 `src/spawn.asm` binds the provider, defers header saving until options are loaded,
 aborts invalid playback, and skips live networking. `shipped-spawner.asm` adapts
 the already-linked package spawner to the same behavior.
@@ -70,7 +73,7 @@ files and an intentionally divergent but correctly hashed state sample. It uses
 only its own manifest-verified child processes. Its temporary developer install
 is separate from production, which runs directly in the client game directory.
 
-Twenty-one emitted-x86 tests cover queue/RNG/header/sidebar and offline startup. The raw-stream
+Twenty-three emitted-x86 tests cover queue/RNG/header/sidebar, offline startup and chat hook integration. Three format tests cover version-2 compatibility and version-3 chat validation. The raw-stream
 development tools (`replay_test.py`, `smoke_test.py`, `--legacy-raw`) remain useful
 for individual queue regressions; they are not installed or used by the client.
 

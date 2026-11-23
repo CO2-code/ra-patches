@@ -165,6 +165,8 @@ pure-$(GAME).exe: .dump-.import-.pure-$(GAME).exe
 
 include ./generic.mk
 
+NFLAGS += -DREPLAY_NATIVE
+
 #CFLAGS          += -mpush-args -mno-accumulate-outgoing-args -mno-stack-arg-probe -O0
 CFLAGS          += -mno-sse -mno-sse2
 WFLAGS          += -Ires/ -I../shared/res/

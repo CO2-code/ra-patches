@@ -105,7 +105,10 @@ def build(source, output, trace=False, native=True):
                    ("replay-sidebar", ROOT / "src/replay_sidebar.asm"),
                    ("replay-spectator", ROOT / "tools/replay/replay-spectator.asm")]
         if native:
-            sources.append(("native-hooks", ROOT / "src/replay-native-hooks.asm"))
+            sources.extend([("chat", ROOT / "src/chat.asm"),
+                            ("chat-self", ROOT / "src/ingame_display_messages_from_yourself.asm"),
+                            ("chat-test-stubs", ROOT / "tools/replay/chat-test-stubs.asm"),
+                            ("native-hooks", ROOT / "src/replay-native-hooks.asm")])
         if trace:
             sources.append(("trace", ROOT / "tools/replay/trace.asm"))
         for name, asm in sources:

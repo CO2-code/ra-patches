@@ -11,6 +11,7 @@ cextern NativeReplay_Seek
 cextern NativeReplay_Size
 cextern NativeReplay_Close
 cextern NativeReplay_Frame
+cextern NativeReplay_ChatFrame
 cextern Replay_Load_Header
 %ifdef REPLAY_TRACE
 cextern Trace_Frame
@@ -81,7 +82,12 @@ hack 0x528EDC, 0x528EE6
     call NativeReplay_Frame
     add esp, 12
     test eax, eax
-    jnz .continue
+    jz .replay_end
+    push dword [0x6680C4]
+    call NativeReplay_ChatFrame
+    add esp, 4
+    jmp .continue
+.replay_end:
     mov dword [0x669924], 0
     popad
     popfd
@@ -95,6 +101,34 @@ hack 0x528EDC, 0x528EE6
     jmp hackend
 
 [section .text]
+cglobal Replay_Chat_Display
+Replay_Chat_Display:
+    push ebp
+    mov ebp, esp
+    pushad
+    mov edx, [ebp+8]
+    mov ecx, [ebp+12]
+    movsx ebx, byte [ebp+16]
+    xor edi, edi
+    mov di, [0x006667C7]
+    lea eax, [edi*8]
+    sub eax, edi
+    shl eax, 5
+    add eax, edi
+    shl eax, 2
+    add eax, 0x80
+    shr eax, 8
+    push eax
+    push 0x4046
+    movsx eax, byte [0x0067F313]
+    push eax
+    mov eax, 0x0067F5A8
+    call 0x0050542C
+    popad
+    mov esp, ebp
+    pop ebp
+    ret
+
 ; Called after native settings and RNG initialization, before starting scenario.
 ; Returns 0 for legacy raw mode, 1 for native container, -1 on invalid playback.
 Replay_Native_Setup:

@@ -62,9 +62,10 @@ completion, sample counts, rejected files and the first state mismatch.
 ## Format and compatibility
 
 The existing client consumes the `YRRP` version-1 metadata header and raw-deflate
-UTF-8 setup/map fields. It skips additive header bytes using HeaderSize. RA1 uses
-an `RA1N` version-2 extension and its own compressed native command/check streams;
-this is not a YR command recording. See [NATIVE-FORMAT.md](NATIVE-FORMAT.md).
+UTF-8 setup/map fields. It skips additive header bytes using HeaderSize. New RA1
+recordings use an `RA1N` version-3 extension with compressed native command,
+state-check and chat streams. Version-2 recordings remain readable; they simply
+have no chat stream. This is not a YR command recording. See [NATIVE-FORMAT.md](NATIVE-FORMAT.md).
 
 The game validates offsets, lengths, allocation limits, native event structure,
 SHA-256 payload hashes and its engine fingerprint. The client retains its
@@ -83,8 +84,7 @@ with a free camera. Viewer orders are discarded before simulation effects.
 The sidebar Options button, Escape and the resign hotkey open the game's normal
 Options dialog during playback. It is modal, so it pauses playback while open, and
 its Abort Mission button leaves the viewer immediately. Recorded commands
-reproduce game-speed changes. YR's observer/house switching, checkpoint seeking, pause/speed viewer controls, camera following, selections and
-chat overlays have not been ported. Those controls are hidden through package
+reproduce game-speed changes. YR's observer/house switching, checkpoint seeking, pause/speed viewer controls, camera following and selections have not been ported. Version-3 recordings restore accepted in-game chat at its original frame; legacy version-2 recordings contain no chat stream. Those controls are hidden through package
 INI, and their launch tags do not replace recorded simulation settings.
 
 Duration uses the recorded initial speed, not measured wall-clock time across
