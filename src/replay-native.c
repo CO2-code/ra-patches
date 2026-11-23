@@ -364,7 +364,7 @@ int NativeReplay_RecordChat(const char *nickname,const char *text,unsigned color
     unsigned nick_len,text_len,needed,cap; unsigned char *p;
     if(!state || state->closed || NativeReplay_ModeValue!=1 || state->failed) return 0;
     nick_len=bounded_length(nickname,12); text_len=bounded_length(text,120);
-    if(nick_len>11 || !text_len) return 0;
+    if(nick_len>11 || !text_len || text_len>119) return 0;
     needed=8+nick_len+text_len;
     if(needed>CHAT_LIMIT-state->chat_size) { state->failed=1; log_line("Native replay chat buffer exhausted; recording is incomplete."); return 0; }
     if(state->chat_size+needed>state->chat_cap) {

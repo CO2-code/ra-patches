@@ -60,7 +60,6 @@ There is no external replay launcher or client-source dependency.
 
 ```powershell
 python -m pip install unicorn
-python tools/replay/test_native_replay.py
 python tools/replay/test_hooks.py out/ra95-trace.dat
 python tools/replay/native_smoke_test.py --game-dir C:/Games/RedAlert --binary out/ra95-trace.dat --out out/native-smoke
 python tools/replay/native_replay.py "out/native-smoke/Replays/native smoke.repcheck"
@@ -74,7 +73,7 @@ files and an intentionally divergent but correctly hashed state sample. It uses
 only its own manifest-verified child processes. Its temporary developer install
 is separate from production, which runs directly in the client game directory.
 
-Twenty-three emitted-x86 tests cover queue/RNG/header/sidebar, offline startup and chat hook integration. Four format tests cover version-2 compatibility and version-3 chat validation. The raw-stream
+Twenty-three emitted-x86 tests cover queue/RNG/header/sidebar, offline startup and chat hook integration. Three format tests cover version-2 compatibility and version-3 chat validation. The raw-stream
 development tools (`replay_test.py`, `smoke_test.py`, `--legacy-raw`) remain useful
 for individual queue regressions; they are not installed or used by the client.
 

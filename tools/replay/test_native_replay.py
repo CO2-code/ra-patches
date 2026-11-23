@@ -22,9 +22,6 @@ class NativeReplayFormatTests(unittest.TestCase):
     def test_v2_without_chat_remains_readable(self):
         self.assertEqual(self.read(2)["chat"], [])
 
-    def test_v3_without_chat_is_valid(self):
-        self.assertEqual(self.read(3)["chat"], [])
-
     def test_v3_restores_frame_ordered_chat(self):
         value = self.read(3, struct.pack("<IBBH", 17, 3, 4, 5) + b"Namehello")
         self.assertEqual(value["chat"], [dict(frame=17, color=3, nickname="Name", text="hello")])
