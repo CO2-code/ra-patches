@@ -60,6 +60,7 @@ There is no external replay launcher or client-source dependency.
 
 ```powershell
 python -m pip install unicorn
+python tools/replay/test_native_replay.py
 python tools/replay/test_hooks.py out/ra95-trace.dat
 python tools/replay/native_smoke_test.py --game-dir C:/Games/RedAlert --binary out/ra95-trace.dat --out out/native-smoke
 python tools/replay/native_replay.py "out/native-smoke/Replays/native smoke.repcheck"
