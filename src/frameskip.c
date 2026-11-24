@@ -17,7 +17,6 @@ CALL(0x004A7E8D, _RenderMainLoop);
 uint32_t MaxFPS = 0;
 int ReplayControlsPaused = 0;
 extern int NativeReplay_ModeValue;
-extern int ReplayControlsVisible;
 
 static bool LastFrameRendered = true;
 
@@ -43,13 +42,6 @@ static void Render()
 
     GScreenClass__Render(MouseClass_Map);
 
-    if (NativeReplay_ModeValue == 2 && ReplayControlsVisible)
-    {
-        char *label = ReplayControlsPaused
-            ? "REPLAY PAUSED  F2: RESUME  F1: HIDE"
-            : "REPLAY PLAYING  F2: PAUSE  F1: HIDE";
-        Fancy_Text_Print(label, (ScreenWidth - 240) / 2, ScreenHeight - 22, (void *)0x00666E8A, 0x0C, 0x4046);
-    }
 }
 
 void ReplayControls_Pump()
