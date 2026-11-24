@@ -1,7 +1,7 @@
 %include "macros/patch.inc"
 %include "macros/hack.inc"
 %include "macros/string.inc"
-%include "macros/datatypes.inc"
+%include "macros/extern.inc"
 %ifdef REPLAY_NATIVE
 cextern NativeReplay_RecordChat
 %endif
