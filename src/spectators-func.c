@@ -7,6 +7,7 @@
 
 int ReplayControlsVisible = 1;
 extern int NativeReplay_ModeValue;
+extern int ReplayControlsPaused;
 
 static int GetTotals(int *typePointer);
 static int *GetPlayerRemapControlType(int *housePointer);
@@ -62,6 +63,13 @@ void DrawLiveStats()
         Fancy_Text_Print(" %d/%d/%d/%d", xRightAligned, (rowHeight * row) + y, playerRemapControlType, backColor, textPrintTypeRightAligned, vehiclesKilled, infantryKilled, buildingsKilled, planesKilled);
     }
 
+    if (NativeReplay_ModeValue == 2 && ReplayControlsVisible)
+    {
+        char *label = ReplayControlsPaused
+            ? "REPLAY PAUSED  F2: RESUME  F1: HIDE"
+            : "REPLAY PLAYING  F2: PAUSE  F1: HIDE";
+        Fancy_Text_Print(label, (ScreenWidth - 240) / 2, ScreenHeight - 22, (void *)0x00666E8A, 0x0C, 0x4046);
+    }
 }
 
 static int GetTotals(int *typePointer)
