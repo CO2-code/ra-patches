@@ -108,6 +108,7 @@ def build(source, output, trace=False, native=True):
             sources.extend([("chat", ROOT / "src/chat.asm"),
                             ("chat-self", ROOT / "src/ingame_display_messages_from_yourself.asm"),
                             ("chat-test-stubs", ROOT / "tools/replay/chat-test-stubs.asm"),
+                            ("replay-controls-test-stubs", ROOT / "tools/replay/replay-controls-test-stubs.asm"),
                             ("native-hooks", ROOT / "src/replay-native-hooks.asm")])
         if trace:
             sources.append(("trace", ROOT / "tools/replay/trace.asm"))
@@ -119,8 +120,7 @@ def build(source, output, trace=False, native=True):
             objects.append(str(obj))
         if native:
             for name, c in [("native", ROOT / "src/replay-native.c"),
-                            ("miniz", ROOT / "src/vendor/miniz/miniz.c"),
-                            ("frameskip", ROOT / "src/frameskip.c")]:
+                            ("miniz", ROOT / "src/vendor/miniz/miniz.c")]:
                 obj = work / f"{name}.o"
                 subprocess.run(["gcc", "-m32", "-Os", "-std=gnu99", "-ffreestanding", "-fno-builtin", "-fno-strict-aliasing",
                                 "-fno-stack-protector", "-fno-asynchronous-unwind-tables",
