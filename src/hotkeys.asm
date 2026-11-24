@@ -16,6 +16,7 @@ cextern QuickSave
 cextern QuickLoad
 cextern NativeReplay_ModeValue
 cextern ReplayControlsVisible
+cextern ReplayControlsPaused
 
 %define SessionClass__Session 0x0067F2B4
 %define KeyResign 0x006681C0
@@ -26,6 +27,7 @@ gshort KeyQuickSave, 0x50 ; P
 gshort KeyQuickLoad, 0x4C ; L
 gshort KeyDebug, 0x49 ; I
 gshort KeyReplayControls, 0x70 ; F1
+gshort KeyReplayPause, 0x71 ; F2
 
 [section .data]
 ResignKeyPressed: dd 0
@@ -92,6 +94,9 @@ ResignKeyPressed: dd 0
     cmp word ax, [KeyReplayControls]
     jz .Toggle_Replay_Controls
 
+    cmp word ax, [KeyReplayPause]
+    jz .Toggle_Replay_Pause
+
 .Out:
 	cmp ax, [0x006681B4] ; KeyNext
 	jnz 0x004A57DF
@@ -102,6 +107,19 @@ ResignKeyPressed: dd 0
     cmp dword [NativeReplay_ModeValue], 2
     jne .Out
     xor byte [ReplayControlsVisible], 1
+    push eax
+    mov edx, 1
+    mov eax, 0x00668250
+    call 0x004CAFF4
+    mov eax, 0x00668250
+    call 0x004CB110
+    pop eax
+    jmp .Out
+
+.Toggle_Replay_Pause:
+    cmp dword [NativeReplay_ModeValue], 2
+    jne .Out
+    xor byte [ReplayControlsPaused], 1
     push eax
     mov edx, 1
     mov eax, 0x00668250
