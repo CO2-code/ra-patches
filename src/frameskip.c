@@ -38,7 +38,15 @@ static void Render()
     WWMouseClass__Erase_Mouse(WWMouseClass__WWMouse, &GraphicsViewPortClass_HidPage, 1);
     GScreenClass__Input(MouseClass_Map, &key, &mouseX, &mouseY);
     if (key != 0)
-        Keyboard_Process(&key);
+    {
+        if (NativeReplay_ModeValue == 2 && (key & 0xFF) == VK_F2)
+        {
+            ReplayControlsPaused = !ReplayControlsPaused;
+            key = 0;
+        }
+        if (key != 0)
+            Keyboard_Process(&key);
+    }
 
     GScreenClass__Render(MouseClass_Map);
 
