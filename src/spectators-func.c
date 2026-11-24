@@ -5,6 +5,9 @@
 #include "patch.h"
 #include "houseclass.h"
 
+int ReplayControlsVisible = 1;
+extern int NativeReplay_ModeValue;
+
 static int GetTotals(int *typePointer);
 static int *GetPlayerRemapControlType(int *housePointer);
 
@@ -58,6 +61,9 @@ void DrawLiveStats()
         int planesKilled = GetTotals((void *)house + HC_PLANES_KILLED);
         Fancy_Text_Print(" %d/%d/%d/%d", xRightAligned, (rowHeight * row) + y, playerRemapControlType, backColor, textPrintTypeRightAligned, vehiclesKilled, infantryKilled, buildingsKilled, planesKilled);
     }
+
+    if (NativeReplay_ModeValue == 2 && ReplayControlsVisible)
+        Fancy_Text_Print("REPLAY CONTROLS  F1: HIDE", (ScreenWidth - 180) / 2, ScreenHeight - 22, (void *)0x00666E8A, 0x0C, 0x4046);
 }
 
 static int GetTotals(int *typePointer)
