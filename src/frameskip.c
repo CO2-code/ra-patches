@@ -15,6 +15,9 @@ CLEAR(0x004A7E8D, 0x90, 0x004A7ECD);
 CALL(0x004A7E8D, _RenderMainLoop);
 
 uint32_t MaxFPS = 0;
+int ReplayControlsPaused = 0;
+extern int NativeReplay_ModeValue;
+extern int ReplayControlsVisible;
 
 static bool LastFrameRendered = true;
 
@@ -28,17 +31,31 @@ static void Render()
             return;
         nextTick = curTick + (1000 / MaxFPS);
     }
-    
+
     short key = 0;
     int mouseY = 0;
     int mouseX = 0;
-    
+
     WWMouseClass__Erase_Mouse(WWMouseClass__WWMouse, &GraphicsViewPortClass_HidPage, 1);
     GScreenClass__Input(MouseClass_Map, &key, &mouseX, &mouseY);
     if (key != 0)
         Keyboard_Process(&key);
-    
+
     GScreenClass__Render(MouseClass_Map);
+
+    if (NativeReplay_ModeValue == 2 && ReplayControlsVisible)
+    {
+        char *label = ReplayControlsPaused
+            ? "REPLAY PAUSED  F2: RESUME  F1: HIDE"
+            : "REPLAY PLAYING  F2: PAUSE  F1: HIDE";
+        Fancy_Text_Print(label, (ScreenWidth - 240) / 2, ScreenHeight - 22, (void *)0x00666E8A, 0x0C, 0x4046);
+    }
+}
+
+void ReplayControls_Pump()
+{
+    Render();
+    Sleep(1);
 }
 
 //try to avoid rendering in the main_loop and rather let sync_delay and wait_for_players do it
