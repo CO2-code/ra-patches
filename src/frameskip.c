@@ -31,6 +31,13 @@ static void Render()
         nextTick = curTick + (1000 / MaxFPS);
     }
 
+    static int ReplayF2WasDown = 0;
+    SHORT f2State = GetAsyncKeyState(VK_F2);
+    int f2Down = (f2State & 0x8000) != 0;
+    if (NativeReplay_ModeValue == 2 && f2Down && !ReplayF2WasDown)
+        ReplayControlsPaused = !ReplayControlsPaused;
+    ReplayF2WasDown = f2Down;
+
     short key = 0;
     int mouseY = 0;
     int mouseX = 0;
@@ -38,15 +45,7 @@ static void Render()
     WWMouseClass__Erase_Mouse(WWMouseClass__WWMouse, &GraphicsViewPortClass_HidPage, 1);
     GScreenClass__Input(MouseClass_Map, &key, &mouseX, &mouseY);
     if (key != 0)
-    {
-        if (NativeReplay_ModeValue == 2 && (key & 0xFF) == VK_F2)
-        {
-            ReplayControlsPaused = !ReplayControlsPaused;
-            key = 0;
-        }
-        if (key != 0)
-            Keyboard_Process(&key);
-    }
+        Keyboard_Process(&key);
 
     GScreenClass__Render(MouseClass_Map);
 
