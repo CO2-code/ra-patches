@@ -155,6 +155,10 @@ Replay_Native_Setup:
     ret
 .active:
     pushad
+    cmp dword [NativeReplay_ModeValue], 2
+    jne .setup_mode
+    mov byte [ReplayControlsPaused], 0
+.setup_mode:
     mov edx, .name
     mov eax, 0x6800F1
     call 0x4627D4
