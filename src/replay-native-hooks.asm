@@ -13,6 +13,8 @@ cextern NativeReplay_Close
 cextern NativeReplay_Frame
 cextern NativeReplay_ChatFrame
 cextern Replay_Load_Header
+cextern ReplayControlsPaused
+cextern ReplayControls_Pump
 %ifdef REPLAY_TRACE
 cextern Trace_Frame
 %endif
@@ -68,6 +70,16 @@ hack 0x528EDC, 0x528EE6
 %ifdef REPLAY_TRACE
     call Trace_Frame
 %endif
+    cmp dword [NativeReplay_ModeValue], 2
+    jne .frame_probe
+.pause_loop:
+    cmp byte [ReplayControlsPaused], 0
+    je .frame_probe
+    cmp dword [0x669924], 0
+    je .frame_probe
+    call ReplayControls_Pump
+    jmp .pause_loop
+.frame_probe:
     cmp dword [NativeReplay_ModeValue], 0
     je .continue
     push dword [0x6678E8]
@@ -88,6 +100,7 @@ hack 0x528EDC, 0x528EE6
     add esp, 4
     jmp .continue
 .replay_end:
+    mov byte [ReplayControlsPaused], 0
     mov dword [0x669924], 0
     popad
     popfd
