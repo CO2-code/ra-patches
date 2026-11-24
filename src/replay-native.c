@@ -414,6 +414,11 @@ int NativeReplay_Frame(unsigned frame,unsigned seed,unsigned crc) {
     }
     return 1;
 }
+/* Frame number of the last recorded check sample, i.e. the replay length in game frames. */
+unsigned NativeReplay_TotalFrames(void) {
+    if(NativeReplay_ModeValue!=2||!state||state->check_size<12) return 0;
+    return U32(state->checks+state->check_size-12);
+}
 int NativeReplay_Close(void) {
     unsigned start; int ok;
     if(!state||state->closed) return 0;
