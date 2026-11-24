@@ -107,26 +107,12 @@ ResignKeyPressed: dd 0
     cmp dword [NativeReplay_ModeValue], 2
     jne .Out
     xor byte [ReplayControlsVisible], 1
-    push eax
-    mov edx, 1
-    mov eax, 0x00668250
-    call 0x004CAFF4
-    mov eax, 0x00668250
-    call 0x004CB110
-    pop eax
     jmp .Out
 
 .Toggle_Replay_Pause:
     cmp dword [NativeReplay_ModeValue], 2
     jne .Out
     xor byte [ReplayControlsPaused], 1
-    push eax
-    mov edx, 1
-    mov eax, 0x00668250
-    call 0x004CAFF4
-    mov eax, 0x00668250
-    call 0x004CB110
-    pop eax
     jmp .Out
 
 .QuickSave:
