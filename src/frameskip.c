@@ -17,7 +17,6 @@ CALL(0x004A7E8D, _RenderMainLoop);
 uint32_t MaxFPS = 0;
 int ReplayControlsPaused = 0;
 extern int NativeReplay_ModeValue;
-void ReplayPanel_Poll(void);
 
 static bool LastFrameRendered = true;
 
@@ -32,7 +31,12 @@ static void Render()
         nextTick = curTick + (1000 / MaxFPS);
     }
 
-    ReplayPanel_Poll();
+    static int ReplayF2WasDown = 0;
+    SHORT f2State = GetAsyncKeyState(VK_F2);
+    int f2Down = (f2State & 0x8000) != 0;
+    if (NativeReplay_ModeValue == 2 && f2Down && !ReplayF2WasDown)
+        ReplayControlsPaused = !ReplayControlsPaused;
+    ReplayF2WasDown = f2Down;
 
     short key = 0;
     int mouseY = 0;

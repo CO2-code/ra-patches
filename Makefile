@@ -40,8 +40,6 @@ OBJS            ?= \
 	src/replay_sidebar.o \
 	src/replay-native.o \
 	src/replay-native-hooks.o \
-	src/replay-panel.o \
-	src/replay-panel-hooks.o \
 	src/vendor/miniz/miniz.o \
 	src/auto-resign-func.o \
 	src/buildingtypeclass_width_crash_fix.o \

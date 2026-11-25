@@ -14,6 +14,7 @@ cextern NativeReplay_Frame
 cextern NativeReplay_ChatFrame
 cextern Replay_Load_Header
 cextern ReplayControlsPaused
+cextern ReplayControls_Pump
 %ifdef REPLAY_TRACE
 cextern Trace_Frame
 %endif
@@ -69,7 +70,15 @@ hack 0x528EDC, 0x528EE6
 %ifdef REPLAY_TRACE
     call Trace_Frame
 %endif
-    ; playback panel pause / step / speed pacing runs from NativeReplay_Frame (src/replay-panel.c)
+    cmp dword [NativeReplay_ModeValue], 2
+    jne .frame_probe
+.pause_loop:
+    cmp byte [ReplayControlsPaused], 0
+    je .frame_probe
+    cmp dword [0x669924], 0
+    je .frame_probe
+    call ReplayControls_Pump
+    jmp .pause_loop
 .frame_probe:
     cmp dword [NativeReplay_ModeValue], 0
     je .continue
