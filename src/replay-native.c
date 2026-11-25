@@ -98,6 +98,17 @@ static void number_line(const char *s, unsigned value) {
     while(i) b[n++]=digits[--i];
     b[n]=0; log_line(b);
 }
+void ReplayPanel_Frame(void);
+void ReplayPanel_Draw(void);
+void ReplayPanel_Poll(void);
+/* Proves the panel is linked and its hooks are patched in: 233 (0xE9) == a jmp is installed. */
+static void panel_diag(void) {
+    number_line("Panel diag: ReplayPanel_Frame addr=",(unsigned)&ReplayPanel_Frame);
+    number_line("Panel diag: ReplayPanel_Draw addr=",(unsigned)&ReplayPanel_Draw);
+    number_line("Panel diag: ReplayPanel_Poll addr=",(unsigned)&ReplayPanel_Poll);
+    number_line("Panel diag: byte at 0x4CB1A3 (Render hook)=",*(volatile unsigned char*)0x4CB1A3);
+    number_line("Panel diag: byte at 0x528EDC (frame hook)=",*(volatile unsigned char*)0x528EDC);
+}
 /* Diagnostics for the playback panel (replay-panel.c), written to replay-native.log. */
 void NativeReplay_Log(const char *s) { log_line(s); }
 void NativeReplay_LogValue(const char *s, unsigned value) { number_line(s,value); }
@@ -318,6 +329,7 @@ int NativeReplay_Bootstrap(void) {
     state->file=INVALID_HANDLE_VALUE;
     ok=playback?playback_setup(request):record_setup(spawn,size,request);
     if(ok) log_line(playback?"Native replay playback prepared (playback panel build).":"Native replay recording prepared.");
+    if(ok&&playback) panel_diag();
     else {
         log_line(playback?"Native replay rejected: invalid, incomplete, incompatible, or unreadable file.":"Native replay recording could not start; match will continue.");
         if(state->file!=INVALID_HANDLE_VALUE) api.CloseHandle(state->file);
@@ -398,6 +410,11 @@ void NativeReplay_ChatFrame(unsigned frame) {
 int NativeReplay_Frame(unsigned frame,unsigned seed,unsigned crc) {
     unsigned sample[3]; sample[0]=frame; sample[1]=seed; sample[2]=crc;
     if(!state||state->closed) return 1;
+    if(NativeReplay_ModeValue==2) {
+        static int first=1;
+        if(first) { first=0; number_line("NativeReplay_Frame first call, mode=",(unsigned)NativeReplay_ModeValue); }
+        ReplayPanel_Frame(); /* playback panel: pause / step / speed pacing */
+    }
     if(NativeReplay_ModeValue==1) {
         if(state->failed) return 1;
         if(state->check_size+12>state->check_cap) {
