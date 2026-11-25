@@ -34,6 +34,8 @@ extern uint16_t KeyReplayControls; // [WinHotkeys] KeyReplayControls (VK code, d
 extern uint16_t KeyReplayPause;    // [WinHotkeys] KeyReplayPause    (VK code, default F2)
 extern uint32_t MaxFPS;
 void ReplayControls_Pump(void);
+void NativeReplay_Log(const char *s);
+void NativeReplay_LogValue(const char *s, unsigned value);
 void ReplayPanel_FillRect(int x1, int y1, int x2, int y2, int color); // replay-panel-hooks.asm, x2/y2 inclusive
 
 #define GAME_ACTIVE      (*(volatile int *)0x00669924)
@@ -84,6 +86,34 @@ static int maxFpsSaved;
 static void RequestScreenUpdate(int fullRedraw)
 {
     MouseClass_Map[0] |= fullRedraw ? 3 : 2; // bit0 IsToRedraw, bit1 IsToUpdate
+}
+
+static uint32_t lastRenderMs;
+static uint32_t lastBeatMs;
+static int seenPoll, seenDraw, seenFrame;
+
+// Render + input pass (frameskip.c Render()), stamped so the frame hook can guarantee a minimum redraw rate.
+static void PumpRender(void)
+{
+    ReplayControls_Pump();
+    lastRenderMs = timeGetTime();
+}
+
+// Heartbeat every 5 s: what the panel can see. Read replay-native.log if the panel misbehaves.
+static void Heartbeat(const char *where)
+{
+    uint32_t now = timeGetTime();
+    if ((int32_t)(now - lastBeatMs) < 5000) return;
+    lastBeatMs = now;
+    NativeReplay_Log(where);
+    NativeReplay_LogValue("  frame=", GAME_FRAME);
+    NativeReplay_LogValue("  paused=", ReplayControlsPaused != 0);
+    NativeReplay_LogValue("  visible=", ReplayControlsVisible != 0);
+    NativeReplay_LogValue("  speedIdx=", speedIdx);
+    NativeReplay_LogValue("  inFocus=", GAME_IN_FOCUS != 0);
+    NativeReplay_LogValue("  protocol=", COMM_PROTOCOL);
+    NativeReplay_LogValue("  keyPause(vk)=", KeyReplayPause);
+    NativeReplay_LogValue("  keyControls(vk)=", KeyReplayControls);
 }
 
 static int KeyDown(unsigned vk)
@@ -163,6 +193,7 @@ static void SpeedText(char *out)
 
 static void Activate(int b)
 {
+    NativeReplay_LogValue("Panel: button clicked: ", (unsigned)b);
     switch (b)
     {
     case BTN_SLOWER:
@@ -195,10 +226,14 @@ static void Activate(int b)
 void ReplayPanel_Poll(void)
 {
     if (NativeReplay_ModeValue != 2) return;
+    if (!seenPoll) { seenPoll = 1; NativeReplay_Log("Panel: Render() pass reached ReplayPanel_Poll (mode 2)."); }
+    Heartbeat("Panel heartbeat (poll):");
 
     // The only place the replay hotkeys are handled (edge-triggered, works while paused too).
     int controlsDown = KeyDown(KeyReplayControls);
     int pauseDown = KeyDown(KeyReplayPause);
+    if (controlsDown && !controlsKeyWasDown) NativeReplay_Log("Panel: controls hotkey pressed.");
+    if (pauseDown && !pauseKeyWasDown) NativeReplay_Log("Panel: pause hotkey pressed.");
     if (controlsDown && !controlsKeyWasDown) ReplayControlsVisible = !ReplayControlsVisible;
     if (pauseDown && !pauseKeyWasDown) ReplayControlsPaused = !ReplayControlsPaused;
     controlsKeyWasDown = controlsDown;
@@ -295,6 +330,7 @@ static void Glyph(int b, int x, int y, int color, int dim)
 void ReplayPanel_Draw(void)
 {
     if (NativeReplay_ModeValue != 2 || !ReplayControlsVisible) return;
+    if (!seenDraw) { seenDraw = 1; NativeReplay_Log("Panel: ReplayPanel_Draw reached (Render hook works)."); }
 
     int px, py;
     PanelOrigin(&px, &py);
@@ -353,6 +389,8 @@ static void ApplyRenderThrottle(void)
 // and before Sync_Delay. Handles pause/step, then paces the frame itself.
 void ReplayPanel_Frame(void)
 {
+    if (!seenFrame) { seenFrame = 1; NativeReplay_Log("Panel: ReplayPanel_Frame reached (frame hook works)."); }
+    Heartbeat("Panel heartbeat (frame):");
     if (GAME_FRAME == 0)
     {
         speedIdx = SPEED_NORMAL;
@@ -380,14 +418,21 @@ void ReplayPanel_Frame(void)
     {
         if (stepRequested) { stepRequested = 0; break; }
         resync = 1;
-        ReplayControls_Pump();
+        PumpRender();
     }
     if (!GAME_ACTIVE) return;
 
     ApplyRenderThrottle();
 
     unsigned speed = SpeedX100[speedIdx];
-    if (!speed || !ticks) { resync = 1; return; } // unlimited
+    if (!speed || !ticks)
+    {
+        // Unlimited: the engine no longer waits (and so no longer renders) in Sync_Delay, so draw
+        // and read input ourselves a few times a second.
+        resync = 1;
+        if ((int32_t)(timeGetTime() - lastRenderMs) >= 33) PumpRender();
+        return;
+    }
 
     // interval in microseconds: ticks * (1e6/60) / (speed/100)
     uint32_t intervalUs = (ticks * 16667u * 100u) / speed;
@@ -405,6 +450,6 @@ void ReplayPanel_Frame(void)
     while ((int32_t)(timeGetTime() - nextMs) < 0 && GAME_ACTIVE && !ReplayControlsPaused)
     {
         if ((int32_t)(nextMs - timeGetTime()) > 2000) break; // never stall on a bad interval
-        ReplayControls_Pump();
+        PumpRender();
     }
 }

@@ -98,6 +98,9 @@ static void number_line(const char *s, unsigned value) {
     while(i) b[n++]=digits[--i];
     b[n]=0; log_line(b);
 }
+/* Diagnostics for the playback panel (replay-panel.c), written to replay-native.log. */
+void NativeReplay_Log(const char *s) { log_line(s); }
+void NativeReplay_LogValue(const char *s, unsigned value) { number_line(s,value); }
 static int write_bytes(HANDLE f, const void *p, unsigned n) { DWORD done=0; return api.WriteFile(f,p,n,&done,0) && done==n; }
 static unsigned char *read_handle(HANDLE f, unsigned *n, unsigned limit) {
     DWORD high=0,done=0; unsigned char *p; *n=api.GetFileSize(f,&high);
