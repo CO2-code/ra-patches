@@ -90,7 +90,7 @@ static void RequestScreenUpdate(int fullRedraw)
 
 static uint32_t lastRenderMs;
 static uint32_t lastBeatMs;
-static int seenPoll, seenDraw, seenFrame;
+static int seenPoll, seenDraw, seenFrame, seenAnyRender, seenAnyDraw;
 
 // Render + input pass (frameskip.c Render()), stamped so the frame hook can guarantee a minimum redraw rate.
 static void PumpRender(void)
@@ -225,6 +225,12 @@ static void Activate(int b)
 // not a game gadget; clicks only count while the game has focus (GameInFocus).
 void ReplayPanel_Poll(void)
 {
+    if (!seenAnyRender)
+    {
+        seenAnyRender = 1;
+        NativeReplay_Log("Panel: Render() pass reached (first time).");
+        NativeReplay_LogValue("  NativeReplay_ModeValue=", (unsigned)NativeReplay_ModeValue);
+    }
     if (NativeReplay_ModeValue != 2) return;
     if (!seenPoll) { seenPoll = 1; NativeReplay_Log("Panel: Render() pass reached ReplayPanel_Poll (mode 2)."); }
     Heartbeat("Panel heartbeat (poll):");
@@ -329,6 +335,13 @@ static void Glyph(int b, int x, int y, int color, int dim)
 // Called from GScreenClass::Render with the hidden page as the logic page.
 void ReplayPanel_Draw(void)
 {
+    if (!seenAnyDraw)
+    {
+        seenAnyDraw = 1;
+        NativeReplay_Log("Panel: GScreenClass::Render hook reached (first time).");
+        NativeReplay_LogValue("  NativeReplay_ModeValue=", (unsigned)NativeReplay_ModeValue);
+        NativeReplay_LogValue("  ReplayControlsVisible=", (unsigned)ReplayControlsVisible);
+    }
     if (NativeReplay_ModeValue != 2 || !ReplayControlsVisible) return;
     if (!seenDraw) { seenDraw = 1; NativeReplay_Log("Panel: ReplayPanel_Draw reached (Render hook works)."); }
 

@@ -317,7 +317,7 @@ int NativeReplay_Bootstrap(void) {
     NativeReplay_ClientRequest=1;
     state->file=INVALID_HANDLE_VALUE;
     ok=playback?playback_setup(request):record_setup(spawn,size,request);
-    if(ok) log_line(playback?"Native replay playback prepared.":"Native replay recording prepared.");
+    if(ok) log_line(playback?"Native replay playback prepared (playback panel build).":"Native replay recording prepared.");
     else {
         log_line(playback?"Native replay rejected: invalid, incomplete, incompatible, or unreadable file.":"Native replay recording could not start; match will continue.");
         if(state->file!=INVALID_HANDLE_VALUE) api.CloseHandle(state->file);
