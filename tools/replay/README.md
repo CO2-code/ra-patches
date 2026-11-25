@@ -90,6 +90,7 @@ advanced viewer controls are outside this initial port.
 During native replay playback a panel is drawn at the bottom centre of the tactical view
 (`src/replay-panel.c`, hooks in `src/replay-panel-hooks.asm`): restart / step back (disabled,
 replays have no checkpoints), slower, pause/resume, faster, step one frame, skip to end, plus
-`elapsed / total` game time, speed (0.25x - 16x, MAX) and a progress bar. F1 hides it, F2 still
-pauses. Frame pacing is done by the panel (`ReplayPanel_Frame`, called from the `Queue_AI`
+`elapsed / total` game time, speed (0.25x - 16x, MAX) and a progress bar. The hotkeys are read from `[WinHotkeys]` in `ra95.ini` as decimal Windows virtual-key
+codes: `KeyReplayControls` (hide/show panel, default 112 = F1) and `KeyReplayPause`
+(pause/resume, default 113 = F2). Frame pacing is done by the panel (`ReplayPanel_Frame`, called from the `Queue_AI`
 frame probe); it zeroes the engine's FrameTimer and waits itself.

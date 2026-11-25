@@ -39,6 +39,8 @@ cextern ScrollFix
 cextern KeyQuickSave
 cextern KeyQuickLoad
 cextern KeyDebug
+cextern KeyReplayControls
+cextern KeyReplayPause
 cextern LagWarningTime
 cextern LagWarningDuration
 cextern LowCpuUsageScroll
@@ -161,6 +163,8 @@ sstring LimitCpuUsageKey, "LimitCpuUsage"
 sstring QuickSaveIniKey, "KeyQuickSave"
 sstring QuickLoadIniKey, "KeyQuickLoad"
 sstring DebugIniKey, "KeyDebug"
+sstring ReplayControlsIniKey, "KeyReplayControls"
+sstring ReplayPauseIniKey, "KeyReplayPause"
 sstring LagWarningTimeKey, "LagWarningTime"
 sstring LagWarningDurationKey, "LagWarningDuration"
 sstring MaxFPSKey, "MaxFPS"
@@ -883,6 +887,14 @@ _OptionsClass__Load_Settings:
 	lea		eax, EBP_RedAlertINI	
 	INI_Get_Int_ eax, str_winhotkeys, DebugIniKey, 0x49 ; I
 	mov		[KeyDebug], ax
+
+	lea		eax, EBP_RedAlertINI
+	INI_Get_Int_ eax, str_winhotkeys, ReplayControlsIniKey, 0x70 ; F1
+	mov		[KeyReplayControls], ax
+
+	lea		eax, EBP_RedAlertINI
+	INI_Get_Int_ eax, str_winhotkeys, ReplayPauseIniKey, 0x71 ; F2
+	mov		[KeyReplayPause], ax
 
 	lea		eax, EBP_RedAlertINI	
 	INI_Get_Bool_ eax, str_options5, str_generatememorydump, 0

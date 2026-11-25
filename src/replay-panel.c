@@ -18,8 +18,7 @@
 //
 // Drawing happens inside GScreenClass::Render on the hidden page, after the map and
 // sidebar and before the blit (hook in replay-panel-hooks.asm), so the panel is repainted
-// every Render pass and never leaves ghosts. Only black/white palette indices are used so
-// it doesn't depend on the loaded palette; disabled buttons are drawn dithered.
+// every Render pass and never leaves ghosts. Only two palette indices (COL_BG/COL_FG) are used; disabled buttons are drawn dithered.
 
 #include <windows.h>
 #include <stdint.h>
@@ -31,6 +30,8 @@ extern int NativeReplay_ModeValue;
 extern unsigned NativeReplay_TotalFrames(void);
 extern int ReplayControlsVisible;
 extern int ReplayControlsPaused;
+extern uint16_t KeyReplayControls; // [WinHotkeys] KeyReplayControls (VK code, default F1)
+extern uint16_t KeyReplayPause;    // [WinHotkeys] KeyReplayPause    (VK code, default F2)
 extern uint32_t MaxFPS;
 void ReplayControls_Pump(void);
 void ReplayPanel_FillRect(int x1, int y1, int x2, int y2, int color); // replay-panel-hooks.asm, x2/y2 inclusive
@@ -45,8 +46,9 @@ void ReplayPanel_FillRect(int x1, int y1, int x2, int y2, int color); // replay-
 #define TICKS_PER_SECOND 15       // game frames per game-second, as in DEFINES.H
 #define TIMER_HZ         60
 
-#define COL_BLACK 0
-#define COL_WHITE 15
+// Palette indices (change here): COL_BG = panel fill / lit-button glyph, COL_FG = borders, glyphs, bar.
+#define COL_BG 5
+#define COL_FG 7
 
 #define PANEL_W   392
 #define PANEL_H   48
@@ -67,6 +69,8 @@ static int stepRequested;
 static int hoverBtn = -1;
 static int pressedBtn = -1;
 static int mouseWasDown;
+static int controlsKeyWasDown;
+static int pauseKeyWasDown;
 static int lastVisible = 1;
 static uint32_t lastSignature = 0xFFFFFFFF;
 static uint32_t nextMs;
@@ -80,6 +84,11 @@ static int maxFpsSaved;
 static void RequestScreenUpdate(int fullRedraw)
 {
     MouseClass_Map[0] |= fullRedraw ? 3 : 2; // bit0 IsToRedraw, bit1 IsToUpdate
+}
+
+static int KeyDown(unsigned vk)
+{
+    return vk && vk < 256 && GAME_IN_FOCUS && (GetAsyncKeyState((int)vk) & 0x8000) != 0;
 }
 
 static int ButtonEnabled(int b)
@@ -187,6 +196,14 @@ void ReplayPanel_Poll(void)
 {
     if (NativeReplay_ModeValue != 2) return;
 
+    // The only place the replay hotkeys are handled (edge-triggered, works while paused too).
+    int controlsDown = KeyDown(KeyReplayControls);
+    int pauseDown = KeyDown(KeyReplayPause);
+    if (controlsDown && !controlsKeyWasDown) ReplayControlsVisible = !ReplayControlsVisible;
+    if (pauseDown && !pauseKeyWasDown) ReplayControlsPaused = !ReplayControlsPaused;
+    controlsKeyWasDown = controlsDown;
+    pauseKeyWasDown = pauseDown;
+
     int visible = ReplayControlsVisible != 0;
     if (visible != lastVisible)
     {
@@ -282,8 +299,8 @@ void ReplayPanel_Draw(void)
     int px, py;
     PanelOrigin(&px, &py);
 
-    Rect(px, py, PANEL_W, PANEL_H, COL_BLACK, 0);
-    Frame1(px, py, PANEL_W, PANEL_H, COL_WHITE);
+    Rect(px, py, PANEL_W, PANEL_H, COL_BG, 0);
+    Frame1(px, py, PANEL_W, PANEL_H, COL_FG);
 
     for (int b = 0; b < BTN_COUNT; b++)
     {
@@ -291,9 +308,9 @@ void ReplayPanel_Draw(void)
         ButtonRect(b, &x, &y);
         int enabled = ButtonEnabled(b);
         int lit = enabled && (b == pressedBtn || (b == hoverBtn && pressedBtn < 0));
-        Rect(x, y, BTN_W, BTN_H, lit ? COL_WHITE : COL_BLACK, 0);
-        Frame1(x, y, BTN_W, BTN_H, COL_WHITE);
-        Glyph(b, x, y, lit ? COL_BLACK : COL_WHITE, !enabled);
+        Rect(x, y, BTN_W, BTN_H, lit ? COL_FG : COL_BG, 0);
+        Frame1(x, y, BTN_W, BTN_H, COL_FG);
+        Glyph(b, x, y, lit ? COL_BG : COL_FG, !enabled);
     }
 
     char cur[16], tot[16], text[40], speed[8];
@@ -312,12 +329,12 @@ void ReplayPanel_Draw(void)
 
     // Progress bar (display only: replays can't seek without checkpoints).
     int sx = px + 8, sy = py + 34, sw = PANEL_W - 16, sh = 8;
-    Frame1(sx, sy, sw, sh, COL_WHITE);
+    Frame1(sx, sy, sw, sh, COL_FG);
     if (total)
     {
         uint32_t f = GAME_FRAME > total ? total : GAME_FRAME;
         int fill = (int)((f * (uint32_t)(sw - 4)) / total);
-        Rect(sx + 2, sy + 2, fill, sh - 4, COL_WHITE, 0);
+        Rect(sx + 2, sy + 2, fill, sh - 4, COL_FG, 0);
     }
 }
 

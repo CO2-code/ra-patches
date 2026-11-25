@@ -14,9 +14,6 @@ extern spawner_is_active
 cextern MessageListClass__EditState
 cextern QuickSave
 cextern QuickLoad
-cextern NativeReplay_ModeValue
-cextern ReplayControlsVisible
-cextern ReplayControlsPaused
 
 %define SessionClass__Session 0x0067F2B4
 %define KeyResign 0x006681C0
@@ -26,8 +23,8 @@ global ResignKeyPressed
 gshort KeyQuickSave, 0x50 ; P
 gshort KeyQuickLoad, 0x4C ; L
 gshort KeyDebug, 0x49 ; I
-gshort KeyReplayControls, 0x70 ; F1
-gshort KeyReplayPause, 0x71 ; F2
+gshort KeyReplayControls, 0x70 ; F1 (handled in replay-panel.c)
+gshort KeyReplayPause, 0x71 ; F2 (handled in replay-panel.c)
 
 [section .data]
 ResignKeyPressed: dd 0
@@ -91,30 +88,12 @@ ResignKeyPressed: dd 0
     cmp word ax, [KeyDebug]
     jz .Debug
 
-    cmp word ax, [KeyReplayControls]
-    jz .Toggle_Replay_Controls
-
-    cmp word ax, [KeyReplayPause]
-    jz .Toggle_Replay_Pause
-
 .Out:
 	cmp ax, [0x006681B4] ; KeyNext
 	jnz 0x004A57DF
 	jmp 0x004A5760
     
     
-.Toggle_Replay_Controls:
-    cmp dword [NativeReplay_ModeValue], 2
-    jne .Out
-    xor byte [ReplayControlsVisible], 1
-    jmp .Out
-
-.Toggle_Replay_Pause:
-    cmp dword [NativeReplay_ModeValue], 2
-    jne .Out
-    xor byte [ReplayControlsPaused], 1
-    jmp .Out
-
 .QuickSave:
     call QuickSave
     jmp .Out

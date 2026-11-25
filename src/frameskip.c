@@ -32,13 +32,6 @@ static void Render()
         nextTick = curTick + (1000 / MaxFPS);
     }
 
-    static int ReplayF2WasDown = 0;
-    SHORT f2State = GetAsyncKeyState(VK_F2);
-    int f2Down = (f2State & 0x8000) != 0;
-    if (NativeReplay_ModeValue == 2 && f2Down && !ReplayF2WasDown)
-        ReplayControlsPaused = !ReplayControlsPaused;
-    ReplayF2WasDown = f2Down;
-
     ReplayPanel_Poll();
 
     short key = 0;
