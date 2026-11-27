@@ -10,6 +10,7 @@
 #define ADDR_FRAME              0x006680C4u
 #define ADDR_MOUSE_MAP          0x00668250u
 #define ADDR_MAP_TACTICAL_COORD (ADDR_MOUSE_MAP + 0x0C4Au)
+#define ADDR_MAP_LEFT_STRIP_X   (ADDR_MOUSE_MAP + 0x104Fu)
 #define ADDR_MAP_SIDEBAR_FLAG   (ADDR_MOUSE_MAP + 0x15F6u)
 #define ADDR_GAME_ACTIVE        0x00669924u
 #define ADDR_OPTIONS_DIALOG     0x00680834u
@@ -36,7 +37,6 @@
 #define MIN_SNAP_INTERVAL       450u
 
 extern int NativeReplay_ModeValue;
-extern int SideBarPanelLeftPosX;
 
 /* ASM Watcom/cdecl shims in replay-controls-hooks.asm */
 void pb_watcom_call_back(void);
@@ -391,7 +391,7 @@ static void compute_layout(ControlsLayout *out) {
         return;
     }
     if (sidebar_open) {
-        int sb_x = SideBarPanelLeftPosX - 16;
+        int sb_x = *(volatile int *)ADDR_MAP_LEFT_STRIP_X - 16;
         if (sb_x >= 320 && sb_x <= sw) view_w = sb_x;
         else if (sw > 160) view_w = sw - 160;
     }

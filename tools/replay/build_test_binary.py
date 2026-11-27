@@ -106,6 +106,7 @@ def build(source, output, trace=False, native=True):
                    ("replay-spectator", ROOT / "tools/replay/replay-spectator.asm")]
         if native:
             sources.append(("native-hooks", ROOT / "src/replay-native-hooks.asm"))
+            sources.append(("controls-hooks", ROOT / "src/replay-controls-hooks.asm"))
         if trace:
             sources.append(("trace", ROOT / "tools/replay/trace.asm"))
         for name, asm in sources:
@@ -117,7 +118,8 @@ def build(source, output, trace=False, native=True):
         if native:
             for name, c in [("native", ROOT / "src/replay-native.c"),
                             ("miniz", ROOT / "src/vendor/miniz/miniz.c"),
-                            ("worldstate-export", ROOT / "src/worldstate-export.c")]:
+                            ("worldstate-export", ROOT / "src/worldstate-export.c"),
+                            ("controls", ROOT / "src/replay-controls.c")]:
                 obj = work / f"{name}.o"
                 subprocess.run(["gcc", "-m32", "-Os", "-std=gnu99", "-ffreestanding", "-fno-builtin", "-fno-strict-aliasing",
                                 "-fno-stack-protector", "-fno-asynchronous-unwind-tables",

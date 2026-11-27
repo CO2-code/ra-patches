@@ -4,7 +4,6 @@
 
 cextern NativeReplay_ModeValue
 cextern NativeReplay_IsAtEnd
-cextern RenderSyncDelay
 
 cextern pb_restoring_snap
 cextern pb_saving_snap
@@ -199,7 +198,18 @@ pb_watcom_render_sync_delay:
     push ebx
     push esi
     push edi
-    call RenderSyncDelay
+    cmp byte [0x004A7C1C], 0xE8
+    jne .fallback_render
+    mov eax, [0x004A7C1D]
+    add eax, 0x004A7C21
+    call eax
+    pop edi
+    pop esi
+    pop ebx
+    ret
+.fallback_render:
+    mov eax, 0x00668250
+    call 0x004CB110
     pop edi
     pop esi
     pop ebx
