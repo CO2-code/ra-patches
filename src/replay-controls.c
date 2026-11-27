@@ -47,6 +47,8 @@ void pb_watcom_override_mouse_normal(void);
 void pb_watcom_set_tactical_pos(uint32_t coord);
 int  pb_watcom_save_game(int slot, const char *desc);
 int  pb_watcom_load_game(int slot);
+int  pb_watcom_hidpage_lock(void);
+void pb_watcom_hidpage_unlock(void);
 
 static uint32_t muldiv_u32(uint32_t a, uint32_t b, uint32_t c, uint32_t add) {
     uint64_t num = (uint64_t)a * (uint64_t)b + (uint64_t)add;
@@ -147,6 +149,12 @@ static int pb_last_drawn_frame = -1;
 static int pb_last_drawn_hover = -2;
 static int pb_last_drawn_paused = -1;
 static int pb_last_drawn_speed = -1;
+static int pb_last_drawn_pressed = -1;
+
+static uint8_t saved_bg[760 * 56];
+static int saved_bg_valid = 0;
+static int saved_bg_x = 0, saved_bg_y = 0, saved_bg_w = 0, saved_bg_h = 0;
+static int saved_bg_sw = 0, saved_bg_sh = 0;
 
 static ReplaySnapshot snapshots[MAX_SNAPSHOTS];
 static int snapshot_count = 0;
@@ -285,8 +293,11 @@ void ReplayControls_OnInit(void) {
     pb_hover_btn = -1;
     pb_pressed_btn = -1;
     pb_dragging = 0;
+    saved_bg_valid = 0;
     pb_hover_bar = 0;
     pb_last_drawn_frame = -1;
+    pb_last_drawn_pressed = -1;
+    saved_bg_valid = 0;
     pal_initialized = 0;
 
     total = NativeReplay_GetTotalFrames();
@@ -596,6 +607,52 @@ static char *append_time(char *p, uint32_t secs) {
     return p;
 }
 
+static void copy_rect_to_saved(const uint8_t *buf, int stride, int w, int h, int rx, int ry, int rw, int rh) {
+    int yy;
+    saved_bg_valid = 0;
+    if (rx < 0 || ry < 0 || rw <= 0 || rh <= 0 || rw > 760 || rh > 56 || rx + rw > w || ry + rh > h) return;
+    for (yy = 0; yy < rh; yy++) {
+        nr_memcpy(saved_bg + yy * rw, buf + (ry + yy) * stride + rx, (unsigned)rw);
+    }
+    saved_bg_x = rx;
+    saved_bg_y = ry;
+    saved_bg_w = rw;
+    saved_bg_h = rh;
+    saved_bg_sw = w;
+    saved_bg_sh = h;
+    saved_bg_valid = 1;
+}
+
+static void restore_saved_to_buf(uint8_t *buf, int stride, int w, int h) {
+    int yy;
+    if (!saved_bg_valid || w != saved_bg_sw || h != saved_bg_sh) {
+        saved_bg_valid = 0;
+        return;
+    }
+    if (saved_bg_x >= 0 && saved_bg_y >= 0 && saved_bg_x + saved_bg_w <= w && saved_bg_y + saved_bg_h <= h) {
+        for (yy = 0; yy < saved_bg_h; yy++) {
+            nr_memcpy(buf + (saved_bg_y + yy) * stride + saved_bg_x, saved_bg + yy * saved_bg_w, (unsigned)saved_bg_w);
+        }
+    }
+    saved_bg_valid = 0;
+}
+
+void pb_on_pre_render(void) {
+    GraphicViewPort *vp;
+    int stride;
+    if (NativeReplay_ModeValue != 2 || !saved_bg_valid) return;
+    if (*(volatile uint32_t *)ADDR_GAME_ACTIVE == 0) { saved_bg_valid = 0; return; }
+    if (!pb_watcom_hidpage_lock()) return;
+    vp = (GraphicViewPort *)ADDR_HIDPAGE;
+    stride = vp->width + vp->x_add + vp->pitch;
+    if (vp->offset && vp->width > 0 && vp->height > 0 && stride >= vp->width) {
+        restore_saved_to_buf(vp->offset, stride, vp->width, vp->height);
+    } else {
+        saved_bg_valid = 0;
+    }
+    pb_watcom_hidpage_unlock();
+}
+
 void pb_on_render(void) {
     GraphicViewPort *vp;
     ControlsLayout L;
@@ -607,19 +664,24 @@ void pb_on_render(void) {
     char *tp;
 
     if (NativeReplay_ModeValue != 2) return;
-    vp = (GraphicViewPort *)ADDR_HIDPAGE;
-    if (!vp->offset || vp->width <= 0 || vp->height <= 0) return;
+    if (*(volatile uint32_t *)ADDR_GAME_ACTIVE == 0) return;
 
     compute_layout(&L);
     if (!L.valid) return;
 
-    rebuild_palette_luts();
-
+    if (!pb_watcom_hidpage_lock()) return;
+    vp = (GraphicViewPort *)ADDR_HIDPAGE;
     buf = vp->offset;
     w = vp->width;
     h = vp->height;
     stride = vp->width + vp->x_add + vp->pitch;
-    if (stride < w) return;
+    if (!buf || w <= 0 || h <= 0 || stride < w) {
+        pb_watcom_hidpage_unlock();
+        return;
+    }
+
+    rebuild_palette_luts();
+    copy_rect_to_saved(buf, stride, w, h, L.bar_x, L.bar_y, L.bar_w, L.bar_h);
 
     total = NativeReplay_GetTotalFrames();
     cur_frame = get_clamped_display_frame(total);
@@ -695,8 +757,11 @@ void pb_on_render(void) {
 
     pb_last_drawn_frame = (int)cur_frame;
     pb_last_drawn_hover = pb_hover_btn;
+    pb_last_drawn_pressed = pb_pressed_btn;
     pb_last_drawn_paused = pb_paused;
     pb_last_drawn_speed = pb_speed_idx;
+
+    pb_watcom_hidpage_unlock();
 }
 
 /* ---- Snapshot Keyframe Management ---- */
@@ -796,6 +861,7 @@ static int restore_snapshot_slot(int slot_idx) {
     cur_sidebar = *(volatile uint8_t *)ADDR_MAP_SIDEBAR_FLAG;
     *(volatile uint8_t *)ADDR_MAP_SIDEBAR_FLAG = (uint8_t)((cur_sidebar & ~1u) | saved_sidebar_bit);
     if (saved_tactical) pb_watcom_set_tactical_pos(saved_tactical);
+    saved_bg_valid = 0;
     pb_watcom_flag_redraw(1);
     pb_at_end = 0;
     return 1;
@@ -1067,6 +1133,7 @@ int pb_on_sync_delay_end(void) {
             now = ensure_api() ? wapi.GetTickCount() : 0;
             if (now - last_paint >= 16u ||
                 pb_hover_btn != pb_last_drawn_hover ||
+                pb_pressed_btn != pb_last_drawn_pressed ||
                 pb_paused != pb_last_drawn_paused ||
                 pb_speed_idx != pb_last_drawn_speed ||
                 pb_dragging) {

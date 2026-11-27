@@ -8,6 +8,7 @@ cextern NativeReplay_IsAtEnd
 cextern pb_restoring_snap
 cextern pb_saving_snap
 
+cextern pb_on_pre_render
 cextern pb_on_render
 cextern pb_on_gscreen_input
 cextern pb_on_wndproc
@@ -23,6 +24,20 @@ cglobal pb_watcom_override_mouse_normal
 cglobal pb_watcom_set_tactical_pos
 cglobal pb_watcom_save_game
 cglobal pb_watcom_load_game
+cglobal pb_watcom_hidpage_lock
+cglobal pb_watcom_hidpage_unlock
+
+
+; 0. GScreenClass::Render pre-Draw_It: restore clean background under bar before dirty tiles redraw
+hack 0x004CB133, 0x004CB138
+    pushfd
+    pushad
+    call pb_on_pre_render
+    popad
+    popfd
+    mov edx, [ebx]
+    mov esi, [ebx+4]
+    jmp hackend
 
 ; 1. GScreenClass::Render: draw playback bar over tactical/sidebar, under WWMouse cursor
 hack 0x004CB140, 0x004CB146
@@ -272,6 +287,28 @@ pb_watcom_load_game:
     push edi
     mov eax, [esp+16]
     call 0x00537D10
+    pop edi
+    pop esi
+    pop ebx
+    ret
+
+pb_watcom_hidpage_lock:
+    push ebx
+    push esi
+    push edi
+    mov eax, 0x006807CC
+    call 0x005C101A
+    pop edi
+    pop esi
+    pop ebx
+    ret
+
+pb_watcom_hidpage_unlock:
+    push ebx
+    push esi
+    push edi
+    mov eax, 0x006807CC
+    call 0x005C1191
     pop edi
     pop esi
     pop ebx
