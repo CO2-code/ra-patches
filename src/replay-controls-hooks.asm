@@ -296,8 +296,31 @@ pb_watcom_hidpage_lock:
     push ebx
     push esi
     push edi
-    mov eax, 0x006807CC
+    mov eax, [0x006807E8]
+    test eax, eax
+    jz .lock_fail
     call 0x005C101A
+    test eax, eax
+    jz .lock_fail
+    mov edx, [0x006807E8]
+    cmp edx, 0x006807CC
+    je .lock_ok
+    mov ecx, [0x006807D4]
+    mov eax, [0x006807D0]
+    push ecx
+    mov ebx, [0x006807DC]
+    push eax
+    mov ecx, [0x006807E0]
+    mov eax, 0x006807CC
+    call 0x005C094F
+.lock_ok:
+    mov eax, 1
+    pop edi
+    pop esi
+    pop ebx
+    ret
+.lock_fail:
+    xor eax, eax
     pop edi
     pop esi
     pop ebx
@@ -307,8 +330,22 @@ pb_watcom_hidpage_unlock:
     push ebx
     push esi
     push edi
-    mov eax, 0x006807CC
+    mov eax, [0x006807E8]
+    test eax, eax
+    jz .unlock_done
     call 0x005C1191
+    test eax, eax
+    jz .unlock_done
+    mov ecx, [0x006807E8]
+    cmp ecx, 0x006807CC
+    je .unlock_done
+    cmp dword [0x006807EC], 0
+    je .unlock_done
+    mov edx, [ecx+0x24]
+    test edx, edx
+    jnz .unlock_done
+    mov [0x006807CC], edx
+.unlock_done:
     pop edi
     pop esi
     pop ebx
