@@ -235,6 +235,9 @@ static int native_events_valid(const unsigned char *p,unsigned n) {
         }
     } return pos==n;
 }
+void ReplayControls_OnInit(void);
+void ReplayControls_OnClose(void);
+
 static int playback_setup(const char *path) {
     HANDLE f; unsigned char *file=0,*map=0,*spawn=0; unsigned n,map_raw; unsigned char hash[32]; int ok=0;
     unsigned *h=(unsigned *)state->header; /* File bounds are checked before every payload access. */
@@ -294,7 +297,10 @@ int NativeReplay_Bootstrap(void) {
     NativeReplay_ClientRequest=1;
     state->file=INVALID_HANDLE_VALUE;
     ok=playback?playback_setup(request):record_setup(spawn,size,request);
-    if(ok) log_line(playback?"Native replay playback prepared.":"Native replay recording prepared.");
+    if(ok) {
+        log_line(playback?"Native replay playback prepared.":"Native replay recording prepared.");
+        if(playback) ReplayControls_OnInit();
+    }
     else {
         log_line(playback?"Native replay rejected: invalid, incomplete, incompatible, or unreadable file.":"Native replay recording could not start; match will continue.");
         if(state->file!=INVALID_HANDLE_VALUE) api.CloseHandle(state->file);
@@ -372,6 +378,40 @@ int NativeReplay_Close(void) {
         log_line(ok?"Native replay playback: all frame/RNG/CRC samples match.":"Native replay playback ended before all samples matched.");
         number_line("Matched frame/RNG/CRC samples: ",state->check_pos/12);
     }
+    if(NativeReplay_ModeValue==2) ReplayControls_OnClose();
     release(state->events); release(state->checks); release(state->compressor);
     state->events=state->checks=0; state->compressor=0; NativeReplay_Bound=0; return 0;
 }
+
+unsigned NativeReplay_GetTotalFrames(void) {
+    if(!state || NativeReplay_ModeValue!=2) return 0;
+    if(state->check_size >= 12) return (state->check_size / 12u) - 1u;
+    return U32(state->header + 1052);
+}
+
+unsigned NativeReplay_GetFps(void) {
+    unsigned desired = *(unsigned *)0x67f32d;
+    if(desired >= 1 && desired <= 60) return desired;
+    return 15u;
+}
+
+void NativeReplay_GetCursors(unsigned *event_pos, unsigned *check_pos, unsigned *last_frame) {
+    if(!state) { *event_pos=0; *check_pos=0; *last_frame=0; return; }
+    *event_pos = state->event_pos;
+    *check_pos = state->check_pos;
+    *last_frame = state->last_frame;
+}
+
+void NativeReplay_SetCursors(unsigned event_pos, unsigned check_pos, unsigned last_frame) {
+    if(!state) return;
+    if(event_pos <= state->event_size) state->event_pos = event_pos;
+    if(check_pos <= state->check_size) state->check_pos = check_pos;
+    state->last_frame = last_frame;
+    state->failed = 0;
+}
+
+int NativeReplay_IsAtEnd(void) {
+    if(!state || state->closed || NativeReplay_ModeValue!=2) return 0;
+    return state->check_size > 0 && state->check_pos >= state->check_size;
+}
+

@@ -12,6 +12,7 @@ cextern NativeReplay_Size
 cextern NativeReplay_Close
 cextern NativeReplay_Frame
 cextern WorldState_ExportSnapshot
+cextern pb_seeking
 cextern Replay_Load_Header
 %ifdef REPLAY_TRACE
 cextern Trace_Frame
@@ -84,6 +85,8 @@ hack 0x528EDC, 0x528EE6
     test eax, eax
     jz .replay_mismatch
     cmp dword [NativeReplay_ModeValue], 2
+    jne .continue
+    cmp dword [pb_seeking], 0
     jne .continue
     call WorldState_ExportSnapshot
     jmp .continue

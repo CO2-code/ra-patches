@@ -41,6 +41,8 @@ OBJS            ?= \
 	src/replay-native.o \
 	src/worldstate-export.o \
 	src/replay-native-hooks.o \
+	src/replay-controls.o \
+	src/replay-controls-hooks.o \
 	src/vendor/miniz/miniz.o \
 	src/auto-resign-func.o \
 	src/buildingtypeclass_width_crash_fix.o \
@@ -171,7 +173,7 @@ CFLAGS          += -mno-sse -mno-sse2
 WFLAGS          += -Ires/ -I../shared/res/
 
 # These modules use private cdecl memory helpers, not Watcom's game CRT.
-src/replay-native.o src/vendor/miniz/miniz.o: CFLAGS += -ffreestanding -fno-builtin -fno-strict-aliasing -fno-stack-protector -fno-asynchronous-unwind-tables -mno-stack-arg-probe -DNDEBUG -DMINIZ_NO_STDIO -DMINIZ_NO_ARCHIVE_APIS -DMINIZ_NO_ZLIB_APIS -DMINIZ_NO_MALLOC -Dmemcpy=nr_memcpy -Dmemset=nr_memset -Dmemmove=nr_memmove -Dmemcmp=nr_memcmp -Dstrlen=nr_strlen -include src/replay-native.h
+src/replay-native.o src/replay-controls.o src/vendor/miniz/miniz.o: CFLAGS += -ffreestanding -fno-builtin -fno-strict-aliasing -fno-stack-protector -fno-asynchronous-unwind-tables -mno-stack-arg-probe -DNDEBUG -DMINIZ_NO_STDIO -DMINIZ_NO_ARCHIVE_APIS -DMINIZ_NO_ZLIB_APIS -DMINIZ_NO_MALLOC -Dmemcpy=nr_memcpy -Dmemset=nr_memset -Dmemmove=nr_memmove -Dmemcmp=nr_memcmp -Dstrlen=nr_strlen -include src/replay-native.h
 
 ifdef WWDEBUG
     CFLAGS += -D WWDEBUG
