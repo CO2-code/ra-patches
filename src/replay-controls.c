@@ -36,6 +36,20 @@
 #define SNAP_BASE_SLOT          900
 #define MIN_SNAP_INTERVAL       450u
 
+#define BAR_MAX_W               760
+#define BAR_H                   40
+
+enum {
+    PB_ACT_JUMP_START = 0,
+    PB_ACT_REWIND_15S = 1,
+    PB_ACT_SLOWER     = 2,
+    PB_ACT_PLAY_PAUSE = 3,
+    PB_ACT_FASTER     = 4,
+    PB_ACT_STEP_FWD   = 5,
+    PB_ACT_JUMP_END   = 6,
+    PB_ACT_TOGGLE_VIS = 7
+};
+
 extern int NativeReplay_ModeValue;
 
 /* ASM Watcom/cdecl shims in replay-controls-hooks.asm */
@@ -43,7 +57,7 @@ void pb_watcom_call_back(void);
 void pb_watcom_keyboard_check(void);
 void pb_watcom_render_sync_delay(void);
 void pb_watcom_flag_redraw(int forced);
-void pb_watcom_override_mouse_normal(void);
+void pb_watcom_redraw_cell_at(int px, int py);
 void pb_watcom_set_tactical_pos(uint32_t coord);
 int  pb_watcom_save_game(int slot, const char *desc);
 int  pb_watcom_load_game(int slot);
@@ -90,9 +104,6 @@ typedef struct {
     BOOL    (WINAPI *DeleteFileA)(LPCSTR);
     DWORD   (WINAPI *GetTickCount)(void);
     void    (WINAPI *Sleep)(DWORD);
-    HWND    (WINAPI *SetCapture)(HWND);
-    BOOL    (WINAPI *ReleaseCapture)(void);
-    SHORT   (WINAPI *GetAsyncKeyState)(int);
 } WinApi;
 
 typedef struct {
@@ -111,7 +122,6 @@ typedef struct {
 
 typedef struct {
     int bar_x, bar_y, bar_w, bar_h;
-    int btn_x[7], btn_y, btn_w, btn_h;
     int seek_x, seek_y, seek_w, seek_h;
     int valid;
 } ControlsLayout;
@@ -126,6 +136,7 @@ static WinApi wapi;
 static HANDLE proc_heap;
 static int api_ready = 0;
 
+static int pb_visible = 1;
 static int pb_at_end = 0;
 static int pb_speed_idx = 2; /* 1.00x */
 static int pb_step_frames = 0;
@@ -138,23 +149,21 @@ static uint32_t pb_last_seek_paint_ms = 0;
 static int pb_audio_muted = 0;
 static uint16_t pb_saved_volume = 0;
 
-static int pb_mouse_x = -1;
-static int pb_mouse_y = -1;
-static int pb_hover_btn = -1;
-static int pb_pressed_btn = -1;
-static int pb_dragging = 0;
-static int pb_drag_frame = 0;
-static int pb_hover_bar = 0;
 static int pb_last_drawn_frame = -1;
-static int pb_last_drawn_hover = -2;
 static int pb_last_drawn_paused = -1;
 static int pb_last_drawn_speed = -1;
-static int pb_last_drawn_pressed = -1;
+static int pb_last_drawn_visible = -1;
 
-static uint8_t saved_bg[760 * 56];
+static uint8_t saved_bg[BAR_MAX_W * BAR_H];
 static int saved_bg_valid = 0;
 static int saved_bg_x = 0, saved_bg_y = 0, saved_bg_w = 0, saved_bg_h = 0;
 static int saved_bg_sw = 0, saved_bg_sh = 0;
+
+/* Track last rendered bar rect on SeenPage + TacticalCoord for scroll smear cleanup */
+static int seen_bar_valid = 0;
+static int seen_bar_x = 0, seen_bar_y = 0, seen_bar_w = 0, seen_bar_h = 0;
+static int scroll_tac_valid = 0;
+static uint32_t scroll_pre_tac = 0;
 
 static ReplaySnapshot snapshots[MAX_SNAPSHOTS];
 static int snapshot_count = 0;
@@ -163,18 +172,14 @@ static uint32_t snap_interval = MIN_SNAP_INTERVAL;
 /* Palette cache & LUTs */
 static uint8_t pal_cache[768];
 static uint8_t pal_lut_panel[256];
-static uint8_t pal_lut_btn[256];
-static uint8_t pal_lut_btn_hover[256];
-static uint8_t pal_lut_btn_press[256];
 static int pal_initialized = 0;
 
 static uint8_t col_panel_border;
-static uint8_t col_btn_border;
-static uint8_t col_btn_border_hi;
-static uint8_t col_icon_active;
-static uint8_t col_icon_dim;
+static uint8_t col_status_play;
+static uint8_t col_status_pause;
 static uint8_t col_text_time;
 static uint8_t col_text_speed;
+static uint8_t col_text_hint;
 static uint8_t col_text_shadow;
 static uint8_t col_seek_border;
 static uint8_t col_seek_bg;
@@ -187,7 +192,7 @@ static const char * const speed_labels[6] = {
     "0.25x", "0.50x", "1.00x", "2.00x", "4.00x", "8.00x"
 };
 
-/* Crisp 5x8 pixel font for time & speed readouts */
+/* Crisp 5x8 pixel font for time, speed, status & hotkey hints */
 typedef struct { char ch; uint8_t rows[8]; } Glyph5x8;
 static const Glyph5x8 font_5x8[] = {
     { '0', { 0x0E, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x0E, 0x00 } },
@@ -200,30 +205,41 @@ static const Glyph5x8 font_5x8[] = {
     { '7', { 0x1F, 0x03, 0x06, 0x06, 0x0C, 0x0C, 0x0C, 0x00 } },
     { '8', { 0x0E, 0x1B, 0x1B, 0x0E, 0x1B, 0x1B, 0x0E, 0x00 } },
     { '9', { 0x0E, 0x1B, 0x1B, 0x0F, 0x03, 0x06, 0x0C, 0x00 } },
+    { 'A', { 0x0E, 0x1B, 0x1B, 0x1F, 0x1B, 0x1B, 0x1B, 0x00 } },
+    { 'C', { 0x0E, 0x1B, 0x18, 0x18, 0x18, 0x1B, 0x0E, 0x00 } },
+    { 'D', { 0x1E, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1E, 0x00 } },
+    { 'E', { 0x1F, 0x18, 0x18, 0x1E, 0x18, 0x18, 0x1F, 0x00 } },
+    { 'H', { 0x1B, 0x1B, 0x1B, 0x1F, 0x1B, 0x1B, 0x1B, 0x00 } },
+    { 'I', { 0x0E, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E, 0x00 } },
+    { 'K', { 0x1B, 0x1B, 0x16, 0x1C, 0x16, 0x1B, 0x1B, 0x00 } },
+    { 'L', { 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x1F, 0x00 } },
+    { 'P', { 0x1E, 0x1B, 0x1B, 0x1E, 0x18, 0x18, 0x18, 0x00 } },
+    { 'S', { 0x0E, 0x1B, 0x18, 0x0E, 0x03, 0x1B, 0x0E, 0x00 } },
+    { 'U', { 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x0E, 0x00 } },
+    { 'Y', { 0x1B, 0x1B, 0x1B, 0x0E, 0x04, 0x04, 0x04, 0x00 } },
     { ':', { 0x00, 0x00, 0x0C, 0x00, 0x00, 0x0C, 0x00, 0x00 } },
     { '/', { 0x01, 0x02, 0x02, 0x04, 0x08, 0x08, 0x10, 0x00 } },
     { '.', { 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x0C, 0x00 } },
+    { ',', { 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x04, 0x08 } },
+    { '-', { 0x00, 0x00, 0x00, 0x1F, 0x00, 0x00, 0x00, 0x00 } },
+    { '=', { 0x00, 0x00, 0x1F, 0x00, 0x1F, 0x00, 0x00, 0x00 } },
     { 'x', { 0x00, 0x00, 0x1B, 0x0E, 0x0E, 0x1B, 0x00, 0x00 } },
     { ' ', { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 } }
 };
 
 static int ensure_api(void) {
-    HMODULE k, u;
+    HMODULE k;
     if (api_ready) return 1;
     wapi.LoadLibraryA = *(HMODULE (WINAPI **)(LPCSTR))0x005E663Cu;
     wapi.GetProcAddress = *(FARPROC (WINAPI **)(HMODULE, LPCSTR))0x005E65FCu;
     k = wapi.LoadLibraryA("kernel32.dll");
-    u = wapi.LoadLibraryA("user32.dll");
-    if (!k || !u) return 0;
-    wapi.GetProcessHeap   = (void *)wapi.GetProcAddress(k, "GetProcessHeap");
-    wapi.HeapAlloc        = (void *)wapi.GetProcAddress(k, "HeapAlloc");
-    wapi.HeapFree         = (void *)wapi.GetProcAddress(k, "HeapFree");
-    wapi.DeleteFileA      = (void *)wapi.GetProcAddress(k, "DeleteFileA");
-    wapi.GetTickCount     = (void *)wapi.GetProcAddress(k, "GetTickCount");
-    wapi.Sleep            = (void *)wapi.GetProcAddress(k, "Sleep");
-    wapi.SetCapture       = (void *)wapi.GetProcAddress(u, "SetCapture");
-    wapi.ReleaseCapture   = (void *)wapi.GetProcAddress(u, "ReleaseCapture");
-    wapi.GetAsyncKeyState = *(SHORT (WINAPI **)(int))0x005E6844u;
+    if (!k) return 0;
+    wapi.GetProcessHeap = (void *)wapi.GetProcAddress(k, "GetProcessHeap");
+    wapi.HeapAlloc      = (void *)wapi.GetProcAddress(k, "HeapAlloc");
+    wapi.HeapFree       = (void *)wapi.GetProcAddress(k, "HeapFree");
+    wapi.DeleteFileA    = (void *)wapi.GetProcAddress(k, "DeleteFileA");
+    wapi.GetTickCount   = (void *)wapi.GetProcAddress(k, "GetTickCount");
+    wapi.Sleep          = (void *)wapi.GetProcAddress(k, "Sleep");
     if (!wapi.GetProcessHeap || !wapi.HeapAlloc || !wapi.HeapFree ||
         !wapi.DeleteFileA || !wapi.GetTickCount || !wapi.Sleep)
         return 0;
@@ -278,6 +294,7 @@ void ReplayControls_OnInit(void) {
     uint32_t total;
     ensure_api();
     cleanup_snapshot_files();
+    pb_visible = 1;
     pb_paused = 0;
     pb_seeking = 0;
     pb_restoring_snap = 0;
@@ -290,14 +307,13 @@ void ReplayControls_OnInit(void) {
     pb_was_paused_before_seek = 0;
     pb_tick_rem_q8 = 0;
     pb_audio_muted = 0;
-    pb_hover_btn = -1;
-    pb_pressed_btn = -1;
-    pb_dragging = 0;
-    saved_bg_valid = 0;
-    pb_hover_bar = 0;
     pb_last_drawn_frame = -1;
-    pb_last_drawn_pressed = -1;
+    pb_last_drawn_paused = -1;
+    pb_last_drawn_speed = -1;
+    pb_last_drawn_visible = -1;
     saved_bg_valid = 0;
+    seen_bar_valid = 0;
+    scroll_tac_valid = 0;
     pal_initialized = 0;
 
     total = NativeReplay_GetTotalFrames();
@@ -311,12 +327,15 @@ void ReplayControls_OnInit(void) {
 void ReplayControls_OnClose(void) {
     unmute_audio_after_seek();
     cleanup_snapshot_files();
+    pb_visible = 1;
     pb_paused = 0;
     pb_seeking = 0;
     pb_at_end = 0;
     pb_seek_target = -1;
     pb_pending_restore_slot = -1;
-    pb_dragging = 0;
+    saved_bg_valid = 0;
+    seen_bar_valid = 0;
+    scroll_tac_valid = 0;
 }
 
 /* ---- Palette & Rendering Helpers ---- */
@@ -348,19 +367,18 @@ static void rebuild_palette_luts(void) {
     nr_memcpy(pal_cache, pal, 768);
     pal_initialized = 1;
 
-    col_panel_border  = find_nearest_color(pal, 106, 114, 128);
-    col_btn_border    = find_nearest_color(pal, 104, 115, 130);
-    col_btn_border_hi = find_nearest_color(pal, 160, 178, 200);
-    col_icon_active   = find_nearest_color(pal, 244, 247, 250);
-    col_icon_dim      = find_nearest_color(pal, 108, 117, 130);
-    col_text_time     = find_nearest_color(pal, 255, 255, 255);
-    col_text_speed    = find_nearest_color(pal, 182, 190, 202);
-    col_text_shadow   = find_nearest_color(pal, 10, 14, 20);
-    col_seek_border   = find_nearest_color(pal, 78, 88, 102);
-    col_seek_bg       = find_nearest_color(pal, 35, 43, 54);
-    col_seek_fill     = find_nearest_color(pal, 90, 168, 245);
-    col_thumb_fill    = find_nearest_color(pal, 255, 255, 255);
-    col_thumb_border  = find_nearest_color(pal, 24, 30, 40);
+    col_panel_border = find_nearest_color(pal, 106, 114, 128);
+    col_status_play  = find_nearest_color(pal, 118, 224, 152);
+    col_status_pause = find_nearest_color(pal, 245, 192, 92);
+    col_text_time    = find_nearest_color(pal, 255, 255, 255);
+    col_text_speed   = find_nearest_color(pal, 182, 190, 202);
+    col_text_hint    = find_nearest_color(pal, 134, 144, 158);
+    col_text_shadow  = find_nearest_color(pal, 10, 14, 20);
+    col_seek_border  = find_nearest_color(pal, 78, 88, 102);
+    col_seek_bg      = find_nearest_color(pal, 35, 43, 54);
+    col_seek_fill    = find_nearest_color(pal, 90, 168, 245);
+    col_thumb_fill   = find_nearest_color(pal, 255, 255, 255);
+    col_thumb_border = find_nearest_color(pal, 24, 30, 40);
 
     for (i = 0; i < 256; i++) {
         int sr = ((int)pal[i * 3 + 0] << 2) | (pal[i * 3 + 0] >> 4);
@@ -372,21 +390,6 @@ static void rebuild_palette_luts(void) {
             pal, (sr * 61 + 14 * 195) >> 8,
                  (sg * 61 + 18 * 195) >> 8,
                  (sb * 61 + 24 * 195) >> 8);
-        /* Normal button: 88% slate (40,50,64) + 12% map */
-        pal_lut_btn[i] = find_nearest_color(
-            pal, (sr * 31 + 40 * 225) >> 8,
-                 (sg * 31 + 50 * 225) >> 8,
-                 (sb * 31 + 64 * 225) >> 8);
-        /* Hovered button: (56, 70, 90) */
-        pal_lut_btn_hover[i] = find_nearest_color(
-            pal, (sr * 24 + 56 * 232) >> 8,
-                 (sg * 24 + 70 * 232) >> 8,
-                 (sb * 24 + 90 * 232) >> 8);
-        /* Pressed button: (28, 36, 48) */
-        pal_lut_btn_press[i] = find_nearest_color(
-            pal, (sr * 24 + 28 * 232) >> 8,
-                 (sg * 24 + 36 * 232) >> 8,
-                 (sb * 24 + 48 * 232) >> 8);
     }
 }
 
@@ -395,7 +398,7 @@ static void compute_layout(ControlsLayout *out) {
     int sh = *(volatile int *)ADDR_SCREEN_HEIGHT;
     int sidebar_open = (*(volatile uint8_t *)ADDR_MAP_SIDEBAR_FLAG) & 1;
     int view_w = sw;
-    int i, bar_w, bar_x, bar_y;
+    int bar_w, bar_x, bar_y;
 
     if (sw < 320 || sh < 200) {
         out->valid = 0;
@@ -408,7 +411,7 @@ static void compute_layout(ControlsLayout *out) {
     }
 
     bar_w = view_w - 16;
-    if (bar_w > 760) bar_w = 760;
+    if (bar_w > BAR_MAX_W) bar_w = BAR_MAX_W;
     if (bar_w < 300) bar_w = view_w - 8;
     if (bar_w < 240) bar_w = 240;
 
@@ -416,32 +419,22 @@ static void compute_layout(ControlsLayout *out) {
     if (bar_x + bar_w > view_w - 4) bar_x = (view_w - bar_w) / 2;
     if (bar_x < 2) bar_x = 2;
 
-    bar_y = sh - 56 - 10;
+    bar_y = sh - BAR_H - 10;
     if (bar_y < 2) bar_y = 2;
 
     out->bar_x = bar_x;
     out->bar_y = bar_y;
     out->bar_w = bar_w;
-    out->bar_h = 56;
-    out->btn_w = (bar_w >= 420) ? 30 : 25;
-    out->btn_h = 22;
-    out->btn_y = bar_y + 7;
-    {
-        int gap = (bar_w >= 420) ? 4 : 3;
-        for (i = 0; i < 7; i++) {
-            out->btn_x[i] = bar_x + 9 + i * (out->btn_w + gap);
-        }
-    }
-    out->seek_x = bar_x + 9;
-    out->seek_y = bar_y + 38;
-    out->seek_w = bar_w - 18;
-    out->seek_h = 10;
+    out->bar_h = BAR_H;
+    out->seek_x = bar_x + 10;
+    out->seek_y = bar_y + 24;
+    out->seek_w = bar_w - 20;
+    out->seek_h = 8;
     out->valid = 1;
 }
 
 static uint32_t get_clamped_display_frame(uint32_t total) {
     uint32_t f = *(volatile uint32_t *)ADDR_FRAME;
-    if (pb_dragging) return (uint32_t)pb_drag_frame;
     if (total > 0 && f > total) f = total;
     return f;
 }
@@ -485,70 +478,29 @@ static void draw_rect_outline(uint8_t *buf, int stride, int w, int h, int x, int
     fill_rect(buf, stride, w, h, x + rw - 1, y, 1, rh, c);
 }
 
-static void draw_tri_left(uint8_t *buf, int stride, int w, int h, int tip_x, int cy, int half_h, uint8_t c) {
-    int col;
-    for (col = 0; col <= half_h; col++) {
-        int yy;
-        for (yy = cy - col; yy <= cy + col; yy++) {
-            put_pixel(buf, stride, w, h, tip_x + col, yy, c);
-        }
-    }
-}
-
-static void draw_tri_right(uint8_t *buf, int stride, int w, int h, int base_x, int cy, int half_h, uint8_t c) {
-    int col;
-    for (col = 0; col <= half_h; col++) {
-        int span = half_h - col;
-        int yy;
-        for (yy = cy - span; yy <= cy + span; yy++) {
-            put_pixel(buf, stride, w, h, base_x + col, yy, c);
-        }
-    }
-}
-
-static void draw_button_icon(uint8_t *buf, int stride, int w, int h, int idx, int bx, int by, int bw, int bh, uint8_t col) {
-    int cx = bx + bw / 2;
-    int cy = by + bh / 2;
-    switch (idx) {
-        case 0: /* |< Jump start */
-            fill_rect(buf, stride, w, h, cx - 5, cy - 4, 2, 9, col);
-            draw_tri_left(buf, stride, w, h, cx - 1, cy, 4, col);
-            break;
-        case 1: /* <| Rewind step */
-            draw_tri_left(buf, stride, w, h, cx - 4, cy, 4, col);
-            fill_rect(buf, stride, w, h, cx + 2, cy - 4, 2, 9, col);
-            break;
-        case 2: /* << Slower */
-            draw_tri_left(buf, stride, w, h, cx - 6, cy, 4, col);
-            draw_tri_left(buf, stride, w, h, cx,     cy, 4, col);
-            break;
-        case 3: /* || / > Pause or Play */
-            if (pb_paused) {
-                draw_tri_right(buf, stride, w, h, cx - 2, cy, 5, col);
-            } else {
-                fill_rect(buf, stride, w, h, cx - 4, cy - 4, 2, 9, col);
-                fill_rect(buf, stride, w, h, cx + 1, cy - 4, 2, 9, col);
+static void draw_status_icon(uint8_t *buf, int stride, int w, int h, int x, int y, int paused, uint8_t col, uint8_t shadow) {
+    if (paused) {
+        fill_rect(buf, stride, w, h, x + 1, y + 1, 2, 7, shadow);
+        fill_rect(buf, stride, w, h, x + 5, y + 1, 2, 7, shadow);
+        fill_rect(buf, stride, w, h, x,     y,     2, 7, col);
+        fill_rect(buf, stride, w, h, x + 4, y,     2, 7, col);
+    } else {
+        int c0;
+        for (c0 = 0; c0 <= 3; c0++) {
+            int span = 3 - c0;
+            int yy;
+            for (yy = (y + 3) - span; yy <= (y + 3) + span; yy++) {
+                put_pixel(buf, stride, w, h, x + c0 + 1, yy + 1, shadow);
+                put_pixel(buf, stride, w, h, x + c0,     yy,     col);
             }
-            break;
-        case 4: /* >> Faster */
-            draw_tri_right(buf, stride, w, h, cx - 5, cy, 4, col);
-            draw_tri_right(buf, stride, w, h, cx + 1, cy, 4, col);
-            break;
-        case 5: /* |> Forward step */
-            fill_rect(buf, stride, w, h, cx - 4, cy - 4, 2, 9, col);
-            draw_tri_right(buf, stride, w, h, cx - 1, cy, 4, col);
-            break;
-        case 6: /* >| Jump end */
-            draw_tri_right(buf, stride, w, h, cx - 4, cy, 4, col);
-            fill_rect(buf, stride, w, h, cx + 3, cy - 4, 2, 9, col);
-            break;
+        }
     }
 }
 
 static int measure_text(const char *s) {
     int w = 0;
     while (*s) {
-        w += (*s == ':' || *s == '.') ? 4 : (*s == ' ' ? 4 : 6);
+        w += (*s == ':' || *s == '.' || *s == ',') ? 4 : (*s == ' ' ? 4 : 6);
         s++;
     }
     return w > 0 ? w - 1 : 0;
@@ -559,7 +511,8 @@ static void draw_text_5x8(uint8_t *buf, int stride, int w, int h, int x, int y, 
         char ch = *s++;
         int g, row, c;
         const uint8_t *rows = 0;
-        int advance = (ch == ':' || ch == '.') ? 4 : (ch == ' ' ? 4 : 6);
+        int narrow = (ch == ':' || ch == '.' || ch == ',');
+        int advance = narrow ? 4 : (ch == ' ' ? 4 : 6);
         for (g = 0; g < (int)(sizeof(font_5x8) / sizeof(font_5x8[0])); g++) {
             if (font_5x8[g].ch == ch) { rows = font_5x8[g].rows; break; }
         }
@@ -568,7 +521,7 @@ static void draw_text_5x8(uint8_t *buf, int stride, int w, int h, int x, int y, 
                 uint8_t bits = rows[row];
                 for (c = 0; c < 5; c++) {
                     if (bits & (0x10 >> c)) {
-                        int px = x + ((ch == ':' || ch == '.') ? (c - 1) : c);
+                        int px = x + (narrow ? (c - 1) : c);
                         put_pixel(buf, stride, w, h, px + 1, y + row + 1, shadow);
                         put_pixel(buf, stride, w, h, px, y + row, col);
                     }
@@ -610,7 +563,7 @@ static char *append_time(char *p, uint32_t secs) {
 static void copy_rect_to_saved(const uint8_t *buf, int stride, int w, int h, int rx, int ry, int rw, int rh) {
     int yy;
     saved_bg_valid = 0;
-    if (rx < 0 || ry < 0 || rw <= 0 || rh <= 0 || rw > 760 || rh > 56 || rx + rw > w || ry + rh > h) return;
+    if (rx < 0 || ry < 0 || rw <= 0 || rh <= 0 || rw > BAR_MAX_W || rh > BAR_H || rx + rw > w || ry + rh > h) return;
     for (yy = 0; yy < rh; yy++) {
         nr_memcpy(saved_bg + yy * rw, buf + (ry + yy) * stride + rx, (unsigned)rw);
     }
@@ -637,11 +590,24 @@ static void restore_saved_to_buf(uint8_t *buf, int stride, int w, int h) {
     saved_bg_valid = 0;
 }
 
+static int lepton_to_px(int lep) {
+    return ((lep * 24) + 128) >> 8;
+}
+
 void pb_on_pre_render(void) {
     GraphicViewPort *vp;
     int stride;
-    if (NativeReplay_ModeValue != 2 || !saved_bg_valid) return;
-    if (*(volatile uint32_t *)ADDR_GAME_ACTIVE == 0) { saved_bg_valid = 0; return; }
+    if (NativeReplay_ModeValue != 2) return;
+    if (*(volatile uint32_t *)ADDR_GAME_ACTIVE == 0) {
+        saved_bg_valid = 0;
+        scroll_tac_valid = 0;
+        return;
+    }
+
+    scroll_pre_tac = *(volatile uint32_t *)ADDR_MAP_TACTICAL_COORD;
+    scroll_tac_valid = 1;
+
+    if (!saved_bg_valid) return;
     if (!pb_watcom_hidpage_lock()) return;
     vp = (GraphicViewPort *)ADDR_HIDPAGE;
     stride = vp->width + vp->x_add + vp->pitch;
@@ -653,18 +619,73 @@ void pb_on_pre_render(void) {
     pb_watcom_hidpage_unlock();
 }
 
+/* Runs inside DisplayClass::Draw_It at 0x004B1E06 right after scroll blit and
+   TacticalCoord update, before dirty terrain cells / objects / shroud redraw. */
+void pb_on_draw_it_post_scroll(int complete) {
+    uint32_t new_tac;
+    int old_lx, old_ly, new_lx, new_ly;
+    int dx, dy;
+    int x0, y0, x1, y1, px, py;
+    int sw, sh;
+
+    if (NativeReplay_ModeValue != 2) return;
+    if (*(volatile uint32_t *)ADDR_GAME_ACTIVE == 0) return;
+
+    new_tac = *(volatile uint32_t *)ADDR_MAP_TACTICAL_COORD;
+    if (complete != 0 || !seen_bar_valid || !scroll_tac_valid || new_tac == scroll_pre_tac) {
+        scroll_pre_tac = new_tac;
+        return;
+    }
+
+    old_lx = (int)(scroll_pre_tac & 0xFFFFu);
+    old_ly = (int)((scroll_pre_tac >> 16) & 0xFFFFu);
+    new_lx = (int)(new_tac & 0xFFFFu);
+    new_ly = (int)((new_tac >> 16) & 0xFFFFu);
+
+    dx = lepton_to_px(old_lx) - lepton_to_px(new_lx);
+    dy = lepton_to_px(old_ly) - lepton_to_px(new_ly);
+
+    sw = *(volatile int *)ADDR_SCREEN_WIDTH;
+    sh = *(volatile int *)ADDR_SCREEN_HEIGHT;
+
+    x0 = seen_bar_x + dx - 24;
+    y0 = seen_bar_y + dy - 24;
+    x1 = seen_bar_x + dx + seen_bar_w + 24;
+    y1 = seen_bar_y + dy + seen_bar_h + 24;
+
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x1 >= sw) x1 = sw - 1;
+    if (y1 >= sh) y1 = sh - 1;
+
+    for (py = y0; py <= y1; py += 12) {
+        for (px = x0; px <= x1; px += 12) {
+            pb_watcom_redraw_cell_at(px, py);
+        }
+    }
+
+    scroll_pre_tac = new_tac;
+}
+
 void pb_on_render(void) {
     GraphicViewPort *vp;
     ControlsLayout L;
     uint8_t *buf;
     int stride, w, h;
     uint32_t total, cur_frame, fps;
-    int i, fill_w, thumb_x;
+    int fill_w, thumb_x;
     char time_buf[40];
     char *tp;
 
     if (NativeReplay_ModeValue != 2) return;
     if (*(volatile uint32_t *)ADDR_GAME_ACTIVE == 0) return;
+
+    if (!pb_visible) {
+        pb_last_drawn_visible = 0;
+        seen_bar_valid = 0;
+        saved_bg_valid = 0;
+        return;
+    }
 
     compute_layout(&L);
     if (!L.valid) return;
@@ -691,47 +712,59 @@ void pb_on_render(void) {
     draw_rect_outline(buf, stride, w, h, L.bar_x, L.bar_y, L.bar_w, L.bar_h, col_panel_border);
     lut_rect(buf, stride, w, h, L.bar_x + 1, L.bar_y + 1, L.bar_w - 2, L.bar_h - 2, pal_lut_panel);
 
-    /* 2. Seven framed icon buttons */
-    for (i = 0; i < 7; i++) {
-        int disabled = ((i == 0 || i == 1) && cur_frame == 0) ||
-                       ((i == 5 || i == 6) && total > 0 && cur_frame >= total);
-        int hovered = (!disabled && pb_hover_btn == i);
-        int pressed = (!disabled && pb_pressed_btn == i);
-        const uint8_t *bg_lut = pressed ? pal_lut_btn_press
-                              : hovered ? pal_lut_btn_hover
-                              : pal_lut_btn;
-        uint8_t border_col = (hovered || pressed) ? col_btn_border_hi : col_btn_border;
-        uint8_t icon_col = disabled ? col_icon_dim : col_icon_active;
-
-        draw_rect_outline(buf, stride, w, h, L.btn_x[i], L.btn_y, L.btn_w, L.btn_h, border_col);
-        lut_rect(buf, stride, w, h, L.btn_x[i] + 1, L.btn_y + 1, L.btn_w - 2, L.btn_h - 2, bg_lut);
-        draw_button_icon(buf, stride, w, h, i, L.btn_x[i], L.btn_y, L.btn_w, L.btn_h, icon_col);
-    }
-
-    /* 3. Right-aligned time & speed readouts */
-    tp = time_buf;
-    tp = append_time(tp, cur_frame / fps);
-    *tp++ = ' '; *tp++ = '/'; *tp++ = ' ';
-    tp = append_time(tp, total / fps);
-    *tp = 0;
-
+    /* 2. Top row: status badge (left), subtle hotkey hints (center), time + speed (right) */
     {
+        const char *status_str = pb_paused ? "PAUSED" : "PLAY";
+        uint8_t status_col = pb_paused ? col_status_pause : col_status_play;
+        int text_y = L.bar_y + 8;
+        int status_x = L.bar_x + 10;
+        int label_x = status_x + 11;
+        int status_end = label_x + measure_text(status_str);
+
         const char *spd = speed_labels[pb_speed_idx];
         int spd_w = measure_text(spd);
-        int spd_x = L.bar_x + L.bar_w - 11 - spd_w;
-        int time_w = measure_text(time_buf);
-        int time_x = spd_x - 24 - time_w;
-        int min_time_x = L.btn_x[6] + L.btn_w + 8;
-        int text_y = L.btn_y + 7;
-        if (time_x >= min_time_x) {
+        int spd_x = L.bar_x + L.bar_w - 10 - spd_w;
+        int time_w;
+        int time_x;
+
+        tp = time_buf;
+        tp = append_time(tp, cur_frame / fps);
+        *tp++ = ' '; *tp++ = '/'; *tp++ = ' ';
+        tp = append_time(tp, total / fps);
+        *tp = 0;
+
+        time_w = measure_text(time_buf);
+        time_x = spd_x - 16 - time_w;
+
+        draw_status_icon(buf, stride, w, h, status_x, text_y, pb_paused, status_col, col_text_shadow);
+        draw_text_5x8(buf, stride, w, h, label_x, text_y, status_str, status_col, col_text_shadow);
+
+        {
+            const char *hint_full  = "SPC:PLAY  -/=:SPD  ,/.:SEEK  H:HIDE";
+            const char *hint_short = "SPC -/= ,/. H";
+            int free_left = status_end + 12;
+            int free_right = time_x - 12;
+            int free_w = free_right - free_left;
+            int w_full = measure_text(hint_full);
+            int w_short = measure_text(hint_short);
+            if (free_w >= w_full) {
+                int hx = free_left + (free_w - w_full) / 2;
+                draw_text_5x8(buf, stride, w, h, hx, text_y, hint_full, col_text_hint, col_text_shadow);
+            } else if (free_w >= w_short) {
+                int hx = free_left + (free_w - w_short) / 2;
+                draw_text_5x8(buf, stride, w, h, hx, text_y, hint_short, col_text_hint, col_text_shadow);
+            }
+        }
+
+        if (time_x >= status_end + 8) {
             draw_text_5x8(buf, stride, w, h, time_x, text_y, time_buf, col_text_time, col_text_shadow);
         }
-        if (spd_x >= min_time_x) {
+        if (spd_x >= status_end + 8) {
             draw_text_5x8(buf, stride, w, h, spd_x, text_y, spd, col_text_speed, col_text_shadow);
         }
     }
 
-    /* 4. Bottom seekbar */
+    /* 3. Bottom progress track */
     draw_rect_outline(buf, stride, w, h, L.seek_x, L.seek_y, L.seek_w, L.seek_h, col_seek_border);
     fill_rect(buf, stride, w, h, L.seek_x + 1, L.seek_y + 1, L.seek_w - 2, L.seek_h - 2, col_seek_bg);
 
@@ -755,11 +788,16 @@ void pb_on_render(void) {
     draw_rect_outline(buf, stride, w, h, thumb_x, L.seek_y - 2, 5, L.seek_h + 4, col_thumb_border);
     fill_rect(buf, stride, w, h, thumb_x + 1, L.seek_y - 1, 3, L.seek_h + 2, col_thumb_fill);
 
+    seen_bar_x = L.bar_x;
+    seen_bar_y = L.bar_y;
+    seen_bar_w = L.bar_w;
+    seen_bar_h = L.bar_h;
+    seen_bar_valid = 1;
+
     pb_last_drawn_frame = (int)cur_frame;
-    pb_last_drawn_hover = pb_hover_btn;
-    pb_last_drawn_pressed = pb_pressed_btn;
     pb_last_drawn_paused = pb_paused;
     pb_last_drawn_speed = pb_speed_idx;
+    pb_last_drawn_visible = 1;
 
     pb_watcom_hidpage_unlock();
 }
@@ -862,6 +900,8 @@ static int restore_snapshot_slot(int slot_idx) {
     *(volatile uint8_t *)ADDR_MAP_SIDEBAR_FLAG = (uint8_t)((cur_sidebar & ~1u) | saved_sidebar_bit);
     if (saved_tactical) pb_watcom_set_tactical_pos(saved_tactical);
     saved_bg_valid = 0;
+    seen_bar_valid = 0;
+    scroll_tac_valid = 0;
     pb_watcom_flag_redraw(1);
     pb_at_end = 0;
     return 1;
@@ -908,26 +948,26 @@ static void start_seek_to(int target_frame) {
     pb_last_seek_paint_ms = ensure_api() ? wapi.GetTickCount() : 0;
 }
 
-static void trigger_button(int idx) {
+static void trigger_action(int act) {
     uint32_t total = NativeReplay_GetTotalFrames();
     uint32_t cur = get_clamped_display_frame(total);
     uint32_t fps = NativeReplay_GetFps();
     int jump = (int)(15u * fps);
 
-    switch (idx) {
-        case 0: /* |< Jump to start */
+    switch (act) {
+        case PB_ACT_JUMP_START:
             if (cur > 0 || pb_at_end) start_seek_to(0);
             break;
-        case 1: /* <| Rewind 15s */
+        case PB_ACT_REWIND_15S:
             if (cur > 0 || pb_at_end) {
                 int t = (int)cur - jump;
                 start_seek_to(t < 0 ? 0 : t);
             }
             break;
-        case 2: /* << Slower */
+        case PB_ACT_SLOWER:
             if (pb_speed_idx > 0) pb_speed_idx--;
             break;
-        case 3: /* || / > Pause / Play */
+        case PB_ACT_PLAY_PAUSE:
             if (pb_at_end) {
                 pb_paused = 0;
                 start_seek_to(0);
@@ -937,10 +977,10 @@ static void trigger_button(int idx) {
                 pb_step_frames = 0;
             }
             break;
-        case 4: /* >> Faster */
+        case PB_ACT_FASTER:
             if (pb_speed_idx < 5) pb_speed_idx++;
             break;
-        case 5: /* |> Step forward (1 frame if paused, +15s if playing) */
+        case PB_ACT_STEP_FWD:
             if (pb_at_end) break;
             if (pb_paused) {
                 pb_step_frames = 1;
@@ -949,45 +989,14 @@ static void trigger_button(int idx) {
                 start_seek_to(t > (int)total ? (int)total : t);
             }
             break;
-        case 6: /* >| Jump to end */
+        case PB_ACT_JUMP_END:
             if (cur < total) start_seek_to((int)total);
+            break;
+        case PB_ACT_TOGGLE_VIS:
+            pb_visible = !pb_visible;
             break;
     }
     pb_watcom_flag_redraw(0);
-}
-
-/* ---- Hit testing & Input ---- */
-static int hit_test_bar(const ControlsLayout *L, int mx, int my) {
-    return L->valid &&
-           mx >= L->bar_x && mx < L->bar_x + L->bar_w &&
-           my >= L->bar_y && my < L->bar_y + L->bar_h;
-}
-
-static int hit_test_button(const ControlsLayout *L, int mx, int my) {
-    int i;
-    if (!L->valid) return -1;
-    if (my < L->btn_y || my >= L->btn_y + L->btn_h) return -1;
-    for (i = 0; i < 7; i++) {
-        if (mx >= L->btn_x[i] && mx < L->btn_x[i] + L->btn_w) return i;
-    }
-    return -1;
-}
-
-static int hit_test_seekbar(const ControlsLayout *L, int mx, int my) {
-    return L->valid &&
-           mx >= L->seek_x - 2 && mx < L->seek_x + L->seek_w + 2 &&
-           my >= L->seek_y - 4 && my < L->seek_y + L->seek_h + 4;
-}
-
-static int seek_x_to_frame(const ControlsLayout *L, int mx) {
-    uint32_t total = NativeReplay_GetTotalFrames();
-    int rel, inner_w;
-    if (total == 0 || L->seek_w <= 2) return 0;
-    inner_w = L->seek_w - 2;
-    rel = mx - (L->seek_x + 1);
-    if (rel < 0) rel = 0;
-    if (rel > inner_w) rel = inner_w;
-    return (int)muldiv_u32((uint32_t)rel, total, (uint32_t)inner_w, (uint32_t)(inner_w / 2));
 }
 
 /* ---- Engine Lifecycle Hooks ---- */
@@ -1132,11 +1141,9 @@ int pb_on_sync_delay_end(void) {
 
             now = ensure_api() ? wapi.GetTickCount() : 0;
             if (now - last_paint >= 16u ||
-                pb_hover_btn != pb_last_drawn_hover ||
-                pb_pressed_btn != pb_last_drawn_pressed ||
                 pb_paused != pb_last_drawn_paused ||
                 pb_speed_idx != pb_last_drawn_speed ||
-                pb_dragging) {
+                pb_visible != pb_last_drawn_visible) {
                 last_paint = now;
                 pb_watcom_flag_redraw(0);
                 pb_watcom_render_sync_delay();
@@ -1154,195 +1161,87 @@ int pb_on_sync_delay_end(void) {
 }
 
 /* Runs at 0x004CB093 right before Map.AI(key, mouseX, mouseY).
-   Returns 1 if the bar owns input and Map.AI should be skipped. */
+   Never steals mouse/keyboard from Map.AI; only flags bar redraw when state/frame changes. */
 int pb_on_gscreen_input(short *key, int *mouse_x, int *mouse_y) {
-    ControlsLayout L;
-    int mx, my, in_bar, new_hover;
     uint32_t cur_frame;
+    (void)key;
+    (void)mouse_x;
+    (void)mouse_y;
 
     if (NativeReplay_ModeValue != 2) return 0;
 
-    mx = *mouse_x;
-    my = *mouse_y;
-    pb_mouse_x = mx;
-    pb_mouse_y = my;
-
-    compute_layout(&L);
-    if (!L.valid) return 0;
-
-    /* Sync drag with Win32 mouse state in case mouse-up happened off-window */
-    if (pb_dragging && wapi.GetAsyncKeyState) {
-        if ((wapi.GetAsyncKeyState(VK_LBUTTON) & 0x8000) == 0) {
-            int target = seek_x_to_frame(&L, mx);
-            pb_dragging = 0;
-            if (wapi.ReleaseCapture) wapi.ReleaseCapture();
-            start_seek_to(target);
-        } else {
-            pb_drag_frame = seek_x_to_frame(&L, mx);
+    if (!pb_visible) {
+        if (pb_last_drawn_visible == 1) {
+            pb_watcom_flag_redraw(0);
         }
-    }
-
-    in_bar = hit_test_bar(&L, mx, my);
-    new_hover = in_bar ? hit_test_button(&L, mx, my) : -1;
-    if (new_hover != pb_hover_btn || in_bar != pb_hover_bar) {
-        pb_hover_btn = new_hover;
-        pb_hover_bar = in_bar;
-        pb_watcom_flag_redraw(0);
+        return 0;
     }
 
     cur_frame = get_clamped_display_frame(NativeReplay_GetTotalFrames());
     if ((int)cur_frame != pb_last_drawn_frame ||
         pb_paused != pb_last_drawn_paused ||
-        pb_speed_idx != pb_last_drawn_speed) {
+        pb_speed_idx != pb_last_drawn_speed ||
+        pb_visible != pb_last_drawn_visible) {
         pb_watcom_flag_redraw(0);
     }
 
-    if (pb_dragging || in_bar) {
-        if (*key == 0x101 || *key == 0x102 || *key == 0x103 || *key == 0x104) {
-            *key = 0;
-        }
-        pb_watcom_override_mouse_normal();
-        return 1;
-    }
     return 0;
 }
 
 /* Runs at 0x005B37D6 BEFORE WWKeyboardClass::Message_Handler.
-   Returns 1 to swallow message completely from RA1, 0 to pass to RA1. */
+   Returns 1 to swallow handled replay hotkeys from RA1, 0 to pass to RA1. */
 int pb_on_wndproc(void *hwnd, unsigned msg, unsigned wparam, unsigned lparam) {
-    ControlsLayout L;
-    int mx, my;
+    (void)hwnd;
 
     if (NativeReplay_ModeValue != 2) return 0;
     if (*(volatile uint32_t *)ADDR_GAME_ACTIVE == 0) return 0;
     if (pb_saving_snap || pb_restoring_snap) return 0;
-    if (*(volatile uint8_t *)ADDR_OPTIONS_DIALOG != 0) {
-        pb_dragging = 0;
-        pb_pressed_btn = -1;
-        return 0;
-    }
+    if (*(volatile uint8_t *)ADDR_OPTIONS_DIALOG != 0) return 0;
 
-    /* Keyboard shortcuts */
-    if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) {
+    if (msg == WM_KEYDOWN) {
         int repeat = (lparam & 0x40000000u) != 0;
         if (wparam == VK_SPACE && !repeat) {
-            trigger_button(3);
+            trigger_action(PB_ACT_PLAY_PAUSE);
             return 1;
         }
         if ((wparam == 0xBD || wparam == 0xDB) && !repeat) { /* '-' or '[' */
-            trigger_button(2);
+            trigger_action(PB_ACT_SLOWER);
             return 1;
         }
         if ((wparam == 0xBB || wparam == 0xDD) && !repeat) { /* '=' or ']' */
-            trigger_button(4);
+            trigger_action(PB_ACT_FASTER);
             return 1;
         }
-        if (wparam == 0xBE && pb_paused) { /* '.' single frame step */
-            trigger_button(5);
+        if (wparam == 0xBC && !repeat) { /* ',' rewind 15s */
+            trigger_action(PB_ACT_REWIND_15S);
             return 1;
         }
-        if (wparam == 0xBC && !repeat) { /* ',' step backward 15s */
-            trigger_button(1);
+        if (wparam == 0xBE && (!repeat || pb_paused)) { /* '.' +15s playing, +1 frame paused */
+            trigger_action(PB_ACT_STEP_FWD);
+            return 1;
+        }
+        if (wparam == VK_HOME && !repeat) {
+            trigger_action(PB_ACT_JUMP_START);
+            return 1;
+        }
+        if (wparam == VK_END && !repeat) {
+            trigger_action(PB_ACT_JUMP_END);
+            return 1;
+        }
+        if (wparam == 'H' && !repeat) {
+            trigger_action(PB_ACT_TOGGLE_VIS);
             return 1;
         }
         return 0;
     }
+
     if (msg == WM_CHAR) {
         if (wparam == ' ' || wparam == '-' || wparam == '=' || wparam == '+' ||
-            wparam == '[' || wparam == ']' || wparam == '.' || wparam == ',') {
+            wparam == '[' || wparam == ']' || wparam == '.' || wparam == ',' ||
+            wparam == '<' || wparam == '>' || wparam == 'h' || wparam == 'H') {
             return 1;
         }
         return 0;
-    }
-
-    if (msg == WM_CAPTURECHANGED || msg == WM_KILLFOCUS || msg == WM_ACTIVATEAPP) {
-        pb_dragging = 0;
-        pb_pressed_btn = -1;
-        return 0;
-    }
-
-    if (msg != WM_MOUSEMOVE && msg != WM_LBUTTONDOWN && msg != WM_LBUTTONUP &&
-        msg != WM_LBUTTONDBLCLK && msg != WM_RBUTTONDOWN && msg != WM_RBUTTONDBLCLK) {
-        return 0;
-    }
-
-    compute_layout(&L);
-    if (!L.valid) return 0;
-
-    mx = (int)(short)(lparam & 0xFFFFu);
-    my = (int)(short)((lparam >> 16) & 0xFFFFu);
-    pb_mouse_x = mx;
-    pb_mouse_y = my;
-
-    if (msg == WM_LBUTTONDOWN || msg == WM_LBUTTONDBLCLK) {
-        if (hit_test_seekbar(&L, mx, my)) {
-            pb_dragging = 1;
-            pb_drag_frame = seek_x_to_frame(&L, mx);
-            if (ensure_api() && wapi.SetCapture) wapi.SetCapture((HWND)hwnd);
-            pb_watcom_flag_redraw(0);
-            return 1;
-        }
-        if (hit_test_bar(&L, mx, my)) {
-            int btn = hit_test_button(&L, mx, my);
-            pb_pressed_btn = btn;
-            pb_hover_btn = btn;
-            if (ensure_api() && wapi.SetCapture) wapi.SetCapture((HWND)hwnd);
-            pb_watcom_flag_redraw(0);
-            return 1;
-        }
-        return 0;
-    }
-
-    if (msg == WM_MOUSEMOVE) {
-        if (pb_dragging) {
-            pb_drag_frame = seek_x_to_frame(&L, mx);
-            pb_watcom_flag_redraw(0);
-            return 1;
-        }
-        if (pb_pressed_btn >= 0) {
-            pb_hover_btn = hit_test_button(&L, mx, my);
-            pb_watcom_flag_redraw(0);
-            return 1;
-        }
-        if (hit_test_bar(&L, mx, my)) {
-            int btn = hit_test_button(&L, mx, my);
-            if (btn != pb_hover_btn) {
-                pb_hover_btn = btn;
-                pb_watcom_flag_redraw(0);
-            }
-            pb_hover_bar = 1;
-        } else if (pb_hover_bar || pb_hover_btn >= 0) {
-            pb_hover_bar = 0;
-            pb_hover_btn = -1;
-            pb_watcom_flag_redraw(0);
-        }
-        return 0;
-    }
-
-    if (msg == WM_LBUTTONUP) {
-        if (pb_dragging) {
-            int target = seek_x_to_frame(&L, mx);
-            pb_dragging = 0;
-            if (ensure_api() && wapi.ReleaseCapture) wapi.ReleaseCapture();
-            start_seek_to(target);
-            pb_watcom_flag_redraw(0);
-            return 1;
-        }
-        if (pb_pressed_btn >= 0) {
-            int clicked = hit_test_button(&L, mx, my);
-            int orig = pb_pressed_btn;
-            pb_pressed_btn = -1;
-            if (ensure_api() && wapi.ReleaseCapture) wapi.ReleaseCapture();
-            if (clicked == orig) trigger_button(orig);
-            pb_watcom_flag_redraw(0);
-            return 1;
-        }
-        if (hit_test_bar(&L, mx, my)) return 1;
-        return 0;
-    }
-
-    if (msg == WM_RBUTTONDOWN || msg == WM_RBUTTONDBLCLK) {
-        if (pb_dragging || pb_pressed_btn >= 0 || hit_test_bar(&L, mx, my)) return 1;
     }
 
     return 0;

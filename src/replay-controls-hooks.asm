@@ -4,11 +4,11 @@
 
 cextern NativeReplay_ModeValue
 cextern NativeReplay_IsAtEnd
-
 cextern pb_restoring_snap
 cextern pb_saving_snap
 
 cextern pb_on_pre_render
+cextern pb_on_draw_it_post_scroll
 cextern pb_on_render
 cextern pb_on_gscreen_input
 cextern pb_on_wndproc
@@ -20,7 +20,7 @@ cglobal pb_watcom_call_back
 cglobal pb_watcom_keyboard_check
 cglobal pb_watcom_render_sync_delay
 cglobal pb_watcom_flag_redraw
-cglobal pb_watcom_override_mouse_normal
+cglobal pb_watcom_redraw_cell_at
 cglobal pb_watcom_set_tactical_pos
 cglobal pb_watcom_save_game
 cglobal pb_watcom_load_game
@@ -28,7 +28,7 @@ cglobal pb_watcom_hidpage_lock
 cglobal pb_watcom_hidpage_unlock
 
 
-; 0. GScreenClass::Render pre-Draw_It: restore clean background under bar before dirty tiles redraw
+; 0. GScreenClass::Render pre-Draw_It: restore clean background under bar before Draw_It runs
 hack 0x004CB133, 0x004CB138
     pushfd
     pushad
@@ -37,6 +37,18 @@ hack 0x004CB133, 0x004CB138
     popfd
     mov edx, [ebx]
     mov esi, [ebx+4]
+    jmp hackend
+
+; 0b. DisplayClass::Draw_It post-scroll blit: dirty cells under shifted old bar copy on HidPage
+hack 0x004B1E06, 0x004B1E0D
+    pushfd
+    pushad
+    push dword [ebp-0xDC]
+    call pb_on_draw_it_post_scroll
+    add esp, 4
+    popad
+    popfd
+    cmp dword [ebp-0xDC], 0
     jmp hackend
 
 ; 1. GScreenClass::Render: draw playback bar over tactical/sidebar, under WWMouse cursor
@@ -49,7 +61,7 @@ hack 0x004CB140, 0x004CB146
     mov edx, [0x00680900]
     jmp hackend
 
-; 2. GScreenClass::Input: intercept bar hover/drag before Map.AI(&key, mouseX, mouseY)
+; 2. GScreenClass::Input: keep playback bar readout synced cleanly before Map.AI(&key, mouseX, mouseY)
 hack 0x004CB093, 0x004CB099
     pushfd
     pushad
@@ -58,19 +70,13 @@ hack 0x004CB093, 0x004CB099
     push edi
     call pb_on_gscreen_input
     add esp, 12
-    test eax, eax
-    jnz .bar_owns_input
     popad
     popfd
     mov ecx, [ebp-0x0C]
     mov eax, [esi+4]
     jmp hackend
-.bar_owns_input:
-    popad
-    popfd
-    jmp 0x004CB0AA
 
-; 3. WndProc: intercept bar mouse clicks/drags and replay hotkeys before Message_Handler
+; 3. WndProc: handle replay hotkeys before Message_Handler
 hack 0x005B37D6, 0x005B37DC
     pushfd
     pushad
@@ -186,6 +192,7 @@ hack 0x00538ED0, 0x00538ED7
     cmp byte [0x00668009], 0xFF
     jmp hackend
 
+
 [section .text]
 align 16, db 0xCC
 
@@ -242,14 +249,27 @@ pb_watcom_flag_redraw:
     pop ebx
     ret
 
-pb_watcom_override_mouse_normal:
+pb_watcom_redraw_cell_at:
     push ebx
     push esi
     push edi
+    mov edx, [esp+16]
+    mov ebx, [esp+20]
     mov eax, 0x00668250
-    xor edx, edx
-    xor ebx, ebx
-    call 0x0050316C
+    call 0x004B0278
+    movsx eax, ax
+    test eax, eax
+    js .cell_done
+    cmp eax, 16384
+    jae .cell_done
+    imul eax, eax, 0x3A
+    mov ecx, [0x0066826C]
+    test ecx, ecx
+    jz .cell_done
+    add eax, ecx
+    mov edx, 1
+    call 0x0049F10C
+.cell_done:
     pop edi
     pop esi
     pop ebx
